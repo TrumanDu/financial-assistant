@@ -27,7 +27,7 @@ npm-debug.log.*
 *.css.d.ts
 *.sass.d.ts
 *.scss.d.ts
-*.db
-plugins/*
-package-lock.json
-data/*
+
+# eslint ignores hidden directories by default:
+# https://github.com/eslint/eslint/issues/8429
+!.erb
