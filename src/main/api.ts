@@ -268,9 +268,9 @@ class API {
   ) {
     const periodFormat =
       dimension === 'year'
-        ? '%Y-%m'
+        ? '%Y'
         : dimension === 'month'
-          ? '%Y-%m-%d'
+          ? '%Y-%m'
           : '%Y-W%W';
 
     return new Promise((resolve, reject) => {

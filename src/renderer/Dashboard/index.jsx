@@ -13,7 +13,7 @@ import * as dateFns from 'date-fns';
 const { Text } = Typography;
 
 function Dashboard() {
-  const [dimension, setDimension] = useState('year');
+  const [dimension, setDimension] = useState('mouth');
   const [dateRange, setDateRange] = useState(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -194,9 +194,9 @@ function Dashboard() {
               onChange={setDimension}
               style={{ width: 120 }}
             >
-              <Select.Option value="year">年</Select.Option>
               <Select.Option value="month">月</Select.Option>
               <Select.Option value="week">周</Select.Option>
+              <Select.Option value="year">年</Select.Option>
             </Select>
           </Space>
           <Card>
