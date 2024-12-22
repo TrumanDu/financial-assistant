@@ -7,6 +7,7 @@ import {
   Table,
   Typography,
   DatePicker,
+  Spin,
 } from '@douyinfe/semi-ui';
 import ReactECharts from 'echarts-for-react';
 
@@ -19,12 +20,13 @@ function Dashboard() {
   const [dateRange, setDateRange] = useState(() => {
     const now = new Date();
     return {
-      start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+      start: new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(),
       end: new Date(now.getFullYear(), now.getMonth() + 1, 0).getTime(),
     };
   });
   const [summaryData, setSummaryData] = useState([]);
   const [detailData, setDetailData] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   const baiduAnalytics = () => {
     try {
@@ -38,6 +40,7 @@ function Dashboard() {
   };
 
   const getData = useCallback(async () => {
+    setLoading(true);
     try {
       const { summary, detail } = window.electron.ipcRenderer.ipcSendSync(
         'getFinancialSummary',
@@ -51,6 +54,8 @@ function Dashboard() {
       setDetailData(detail);
     } catch (error) {
       console.error('获取数据失败:', error);
+    } finally {
+      setLoading(false);
     }
   }, [dateRange, dimension]);
 
@@ -359,31 +364,37 @@ function Dashboard() {
             </Select>
           </Space>
 
-          <Card title="收益趋势" style={{ width: '100%' }}>
-            <ReactECharts
-              option={chartOptions}
-              style={{ height: '400px' }}
-              opts={{ renderer: 'svg' }}
-            />
-          </Card>
+          {loading ? (
+            <Spin tip="加载中..." size="large" />
+          ) : (
+            <>
+              <Card title="收益趋势" style={{ width: '100%' }}>
+                <ReactECharts
+                  option={chartOptions}
+                  style={{ height: '400px' }}
+                  opts={{ renderer: 'svg' }}
+                />
+              </Card>
 
-          <Card title="收益汇总" style={{ width: '100%' }}>
-            <Table
-              columns={summaryColumns}
-              dataSource={summaryData}
-              pagination={false}
-              bordered
-            />
-          </Card>
+              <Card title="收益汇总" style={{ width: '100%' }}>
+                <Table
+                  columns={summaryColumns}
+                  dataSource={summaryData}
+                  pagination={false}
+                  bordered
+                />
+              </Card>
 
-          <Card title="收益明细" style={{ width: '100%' }}>
-            <Table
-              columns={detailColumns}
-              dataSource={detailData}
-              pagination={false}
-              bordered
-            />
-          </Card>
+              <Card title="收益明细" style={{ width: '100%' }}>
+                <Table
+                  columns={detailColumns}
+                  dataSource={detailData}
+                  pagination={false}
+                  bordered
+                />
+              </Card>
+            </>
+          )}
         </Space>
       </div>
     </div>

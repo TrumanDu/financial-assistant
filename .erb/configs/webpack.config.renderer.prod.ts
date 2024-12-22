@@ -27,7 +27,6 @@ const configuration: webpack.Configuration = {
 
   entry: {
     main: [path.join(webpackPaths.srcRendererPath, 'index.tsx')],
-    dashboard: [path.join(webpackPaths.srcDashboardRenderPath, 'index.tsx')],
   },
 
   output: {

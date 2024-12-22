@@ -1,4 +1,4 @@
-import { rimrafSync } from 'rimraf';
+import { sync as rimrafSync } from 'rimraf';
 import fs from 'fs';
 import webpackPaths from '../configs/webpack.paths';
 
