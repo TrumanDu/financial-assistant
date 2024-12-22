@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 /* eslint-disable no-console */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable class-methods-use-this */
@@ -260,56 +261,150 @@ class API {
     });
   }
 
-  // 获取存款收益统计
+  private generateTimePeriods(
+    startDate: number,
+    endDate: number,
+    dimension: string,
+  ): { start: number; end: number; period: string }[] {
+    const periods: { start: number; end: number; period: string }[] = [];
+    const now = Date.now();
+    const effectiveEndDate = Math.min(endDate, now);
+
+    let currentDate = new Date(startDate);
+    const endDateTime = new Date(effectiveEndDate);
+
+    while (currentDate < endDateTime) {
+      let nextDate = new Date(currentDate);
+      let period: string;
+
+      switch (dimension) {
+        case 'year':
+          period = currentDate.getFullYear().toString();
+          nextDate.setFullYear(currentDate.getFullYear() + 1);
+          break;
+        case 'month':
+          period = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+          nextDate.setMonth(currentDate.getMonth() + 1);
+          break;
+        case 'week':
+          const monday = new Date(currentDate);
+          const dayOfWeek = monday.getDay() || 7;
+          monday.setDate(monday.getDate() - dayOfWeek + 1);
+
+          nextDate = new Date(monday);
+          nextDate.setDate(monday.getDate() + 7);
+
+          const firstDayOfYear = new Date(monday.getFullYear(), 0, 1);
+          const weekNum = Math.ceil(
+            ((monday.getTime() - firstDayOfYear.getTime()) / 86400000 + 1) / 7,
+          );
+
+          period = `${monday.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+          break;
+        default:
+          throw new Error(`Unsupported dimension: ${dimension}`);
+      }
+
+      periods.push({
+        start: currentDate.getTime(),
+        end: Math.min(nextDate.getTime(), effectiveEndDate),
+        period,
+      });
+
+      currentDate = nextDate;
+    }
+
+    return periods;
+  }
+
   public async getSavingsEarnings(
     startDate: number,
     endDate: number,
     dimension: string,
   ) {
-    const periodFormat =
-      dimension === 'year'
-        ? '%Y'
-        : dimension === 'month'
-          ? '%Y-%m'
-          : '%Y-W%W';
+    const periods = this.generateTimePeriods(startDate, endDate, dimension);
 
-    return new Promise((resolve, reject) => {
+    // 一次性查询所有数据
+    const allRecords = await new Promise((resolve, reject) => {
       this.db.all(
-        `WITH RECURSIVE dates(date) AS (
-          SELECT datetime(?, 'unixepoch', 'localtime')
-          UNION ALL
-          SELECT datetime(date, '+1 ${dimension}')
-          FROM dates
-          WHERE date < datetime(?, 'unixepoch', 'localtime')
-        )
-        SELECT
-          strftime('${periodFormat}', date) as period,
-          owner,
-          SUM(money) as total_money,
-          SUM(money * rate * (
-            CASE
-              WHEN start_date < strftime('%s', date) * 1000 THEN strftime('%s', date) * 1000
-              ELSE start_date
-            END -
-            CASE
-              WHEN end_date > strftime('%s', datetime(date, '+1 ${dimension}')) * 1000
-              THEN strftime('%s', datetime(date, '+1 ${dimension}')) * 1000
-              ELSE end_date
-            END
-          ) / (365 * 100 * 24 * 60 * 60 * 1000)) as earnings,
-          AVG(rate) as avg_rate
-        FROM dates
-        LEFT JOIN savings_record ON
-          start_date <= strftime('%s', datetime(date, '+1 ${dimension}')) * 1000
-          AND end_date >= strftime('%s', date) * 1000
-        GROUP BY period, owner
-        ORDER BY period, owner`,
-        [startDate / 1000, endDate / 1000],
+        `SELECT * FROM savings_record
+        WHERE start_date < ? AND end_date > ?`,
+        [
+          Math.max(...periods.map((p) => p.end)),
+          Math.min(...periods.map((p) => p.start)),
+        ],
         (err, rows) => {
           if (err) reject(err);
-          resolve(rows);
+          resolve(rows || []);
         },
       );
+    });
+
+    // 在内存中处理每个时间段的统计
+    const results = periods
+      .flatMap((period) => {
+        // 按 owner 分组计算
+        const ownerStats = new Map<
+          string,
+          {
+            total_money: number;
+            earnings: number;
+            rates: number[];
+          }
+        >();
+
+        (allRecords as any[]).forEach((record) => {
+          if (
+            record.start_date < period.end &&
+            record.end_date > period.start
+          ) {
+            const { owner } = record;
+            if (!ownerStats.has(owner)) {
+              ownerStats.set(owner, {
+                total_money: 0,
+                earnings: 0,
+                rates: [],
+              });
+            }
+
+            const stats = ownerStats.get(owner)!;
+            stats.total_money += record.money;
+            stats.rates.push(record.rate);
+
+            const effectiveStartDate = Math.max(
+              record.start_date,
+              period.start,
+            );
+            const effectiveEndDate = Math.min(record.end_date, period.end);
+            const daysInPeriod =
+              (effectiveEndDate - effectiveStartDate) / (24 * 60 * 60 * 1000);
+
+            stats.earnings +=
+              (record.money * record.rate * daysInPeriod) / (365 * 100);
+          }
+        });
+
+        // 只返回有数据的期间
+        if (ownerStats.size === 0) {
+          return [];
+        }
+
+        return Array.from(ownerStats.entries()).map(([owner, stats]) => ({
+          period: period.period,
+          owner,
+          total_money: stats.total_money,
+          earnings: stats.earnings,
+          avg_rate: stats.rates.reduce((a, b) => a + b, 0) / stats.rates.length,
+        }));
+      })
+      // 过滤掉空数组（没有数据的期间）
+      .filter((result) => result.total_money > 0);
+
+    // 按期间和所有者排序
+    return results.sort((a, b) => {
+      const periodCompare = a.period.localeCompare(b.period);
+      if (periodCompare !== 0) return periodCompare;
+      return a.owner.localeCompare(b.owner);
     });
   }
 
@@ -319,69 +414,113 @@ class API {
     endDate: number,
     dimension: string,
   ) {
-    const periodFormat =
-      dimension === 'year'
-        ? '%Y-%m'
-        : dimension === 'month'
-          ? '%Y-%m-%d'
-          : '%Y-W%W';
+    const periods = this.generateTimePeriods(startDate, endDate, dimension);
 
-    return new Promise((resolve, reject) => {
+    // 一次性查询所有数据
+    const allRecords = await new Promise((resolve, reject) => {
       this.db.all(
-        `WITH RECURSIVE dates(date) AS (
-          SELECT datetime(?, 'unixepoch', 'localtime')
-          UNION ALL
-          SELECT datetime(date, '+1 ${dimension}')
-          FROM dates
-          WHERE date < datetime(?, 'unixepoch', 'localtime')
-        ),
-        RankedRecords AS (
-          SELECT
-            i.owner,
-            ir.investment_id,
-            ir.money,
-            ir.in_date,
-            LAG(ir.money) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_money,
-            LAG(ir.in_date) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_date
-          FROM investment_record ir
-          JOIN investment i ON ir.investment_id = i.id
-          WHERE ir.in_date <= ?
-        )
-        SELECT
-          strftime('${periodFormat}', date) as period,
-          owner,
-          SUM(CASE
-            WHEN prev_date >= strftime('%s', date) * 1000 THEN money - prev_money
-            WHEN prev_date IS NULL THEN 0
-            ELSE (money - prev_money) *
-              (strftime('%s', datetime(date, '+1 ${dimension}')) * 1000 -
-               MAX(prev_date, strftime('%s', date) * 1000)) / (in_date - prev_date)
-          END) as earnings,
-          SUM(money) as total_money,
-          CASE
-            WHEN SUM(money) > 0 THEN
-              SUM(CASE
-                WHEN prev_date >= strftime('%s', date) * 1000 THEN (money - prev_money)
-                WHEN prev_date IS NULL THEN 0
-                ELSE (money - prev_money) *
-                  (strftime('%s', datetime(date, '+1 ${dimension}')) * 1000 -
-                   MAX(prev_date, strftime('%s', date) * 1000)) / (in_date - prev_date)
-              END) * 365 * 100 / (SUM(money) *
-                (strftime('%s', datetime(date, '+1 ${dimension}')) - strftime('%s', date)))
-              ELSE 0
-          END as rate
-        FROM dates
-        LEFT JOIN RankedRecords ON
-          in_date <= strftime('%s', datetime(date, '+1 ${dimension}')) * 1000
-          AND (prev_date IS NULL OR prev_date < strftime('%s', datetime(date, '+1 ${dimension}')) * 1000)
-        GROUP BY period, owner
-        ORDER BY period, owner`,
-        [startDate / 1000, endDate / 1000, endDate],
+        `SELECT
+          i.owner,
+          ir.investment_id,
+          ir.money,
+          ir.in_date,
+          LAG(ir.money) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_money,
+          LAG(ir.in_date) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_date
+        FROM investment_record ir
+        JOIN investment i ON ir.investment_id = i.id
+        WHERE ir.in_date <= ?
+        ORDER BY ir.investment_id, ir.in_date`,
+        [Math.max(...periods.map((p) => p.end))],
         (err, rows) => {
           if (err) reject(err);
-          resolve(rows);
+          resolve(rows || []);
         },
       );
+    });
+
+    // 在内存中处理每个时间段的统计
+    const results = periods
+      .flatMap((period) => {
+        const ownerStats = new Map<
+          string,
+          {
+            total_money: number;
+            earnings: number;
+          }
+        >();
+
+        (allRecords as any[]).forEach((record) => {
+          if (record.in_date <= period.end) {
+            const { owner } = record;
+            if (!ownerStats.has(owner)) {
+              ownerStats.set(owner, {
+                total_money: 0,
+                earnings: 0,
+              });
+            }
+
+            const stats = ownerStats.get(owner)!;
+
+            // 计算当前期间的收益
+            if (record.prev_date !== null) {
+              const moneyDiff = record.money - record.prev_money;
+
+              // 计算在当前期间内的时间占比
+              const periodStart = period.start;
+              const periodEnd = period.end;
+              const recordStart = Math.max(record.prev_date, periodStart);
+              const recordEnd = Math.min(record.in_date, periodEnd);
+
+              if (recordEnd > recordStart) {
+                // 计算时间占比
+                const totalDuration = record.in_date - record.prev_date;
+                const effectiveDuration = recordEnd - recordStart;
+
+                // 按时间比例计算收益
+                const periodEarnings =
+                  moneyDiff * (effectiveDuration / totalDuration);
+                stats.earnings += periodEarnings;
+              }
+            }
+
+            // 更新总金额（使用期间结束时的金额）
+            if (record.in_date <= period.end) {
+              stats.total_money = record.money;
+            }
+          }
+        });
+
+        // 只返回有数据的期间
+        if (ownerStats.size === 0) {
+          return [];
+        }
+
+        return Array.from(ownerStats.entries()).map(([owner, stats]) => {
+          // 计算年化收益率
+          const rate =
+            stats.total_money > 0
+              ? (stats.earnings * 365 * 100) /
+                (stats.total_money *
+                  ((period.end - period.start) / (24 * 60 * 60 * 1000)))
+              : 0;
+
+          return {
+            period: period.period,
+            owner,
+            total_money: stats.total_money,
+            earnings: stats.earnings,
+            rate,
+          };
+        });
+      })
+      // 过滤掉没有数据的期间
+      .filter((result) => result.total_money > 0);
+
+    // 按期间和所有者排序
+    return results.sort((a, b) => {
+      const periodCompare = a.period.localeCompare(b.period);
+      if (periodCompare !== 0) return periodCompare;
+      return a.owner.localeCompare(b.owner);
     });
   }
 
@@ -391,55 +530,204 @@ class API {
     const { startDate, endDate, dimension } = data;
 
     try {
-      const [savingsEarnings, investmentEarnings] = await Promise.all([
-        this.getSavingsEarnings(startDate, endDate, dimension),
-        this.getInvestmentEarnings(startDate, endDate, dimension),
+      // 获取存款和理财的原始数据
+      const [savingsData, investmentData] = await Promise.all([
+        // 存款查询
+        new Promise((resolve, reject) => {
+          this.db.all(
+            `SELECT
+              name,
+              SUM(money) as total_money,
+              rate,
+              start_date,
+              end_date
+            FROM savings_record
+            WHERE start_date < ? AND end_date > ?
+            GROUP BY name, rate`,
+            [endDate, startDate],
+            (err, rows) => {
+              if (err) reject(err);
+              resolve(rows || []);
+            },
+          );
+        }),
+        // 理财查询
+        new Promise((resolve, reject) => {
+          this.db.all(
+            `SELECT
+              i.name,
+              ir.money,
+              ir.in_date,
+              LAG(ir.money) OVER (PARTITION BY i.id ORDER BY ir.in_date) as prev_money,
+              LAG(ir.in_date) OVER (PARTITION BY i.id ORDER BY ir.in_date) as prev_date
+            FROM investment_record ir
+            JOIN investment i ON ir.investment_id = i.id
+            WHERE ir.in_date <= ?
+            ORDER BY i.id, ir.in_date`,
+            [endDate],
+            (err, rows) => {
+              if (err) reject(err);
+              resolve(rows || []);
+            },
+          );
+        }),
       ]);
 
-      // 合并两种收益数据
+      const periods = this.generateTimePeriods(startDate, endDate, dimension);
       const summary = new Map();
+      const detail = new Map();
 
-      // 处理存款收益
-      savingsEarnings.forEach((item: any) => {
-        const key = `${item.period}-${item.owner}`;
-        summary.set(key, {
-          period: item.period,
-          owner: item.owner,
-          savings_money: item.total_money || 0,
-          savings_earnings: item.earnings || 0,
-          savings_rate: item.avg_rate || 0,
-          investment_money: 0,
-          investment_earnings: 0,
-          investment_rate: 0,
+      // 处理每个时间段
+      periods.forEach((period) => {
+        // 计算存款收益
+        savingsData.forEach((record: any) => {
+          if (
+            record.start_date < period.end &&
+            record.end_date > period.start
+          ) {
+            const effectiveStartDate = Math.max(
+              record.start_date,
+              period.start,
+            );
+            const effectiveEndDate = Math.min(record.end_date, period.end);
+            const daysInPeriod =
+              (effectiveEndDate - effectiveStartDate) / (24 * 60 * 60 * 1000);
+
+            const earnings =
+              (record.total_money * record.rate * daysInPeriod) / (365 * 100);
+
+            // 明细数据
+            const detailKey = `${period.period}-存款-${record.name}(${record.rate}%)`;
+            const detailItem = detail.get(detailKey) || {
+              period: period.period,
+              name: `存款-${record.name}(${record.rate}%)`,
+              total_money: 0,
+              earnings: 0,
+              rate: record.rate,
+            };
+            detailItem.total_money += record.total_money;
+            detailItem.earnings += earnings;
+            detail.set(detailKey, detailItem);
+
+            // 汇总数据
+            const summaryKey = period.period;
+            const summaryItem = summary.get(summaryKey) || {
+              period: period.period,
+              total_money: 0,
+              earnings: 0,
+              expected_total: 0,
+              actual_total: 0,
+            };
+            summaryItem.total_money += record.total_money;
+            summaryItem.earnings += earnings;
+            summaryItem.expected_total += record.total_money + earnings;
+
+            // 如果查询时间大于等于存款结束时间，则计入真实总金额
+            if (period.end >= record.end_date) {
+              summaryItem.actual_total += record.total_money + earnings;
+            } else {
+              summaryItem.actual_total += record.total_money; // 只计入本金
+            }
+
+            summary.set(summaryKey, summaryItem);
+          }
+        });
+
+        // 计算理财收益
+        const productStats = new Map();
+        investmentData.forEach((record: any) => {
+          if (record.in_date <= period.end && record.prev_date) {
+            const recordStart = Math.max(record.prev_date, period.start);
+            const recordEnd = Math.min(record.in_date, period.end);
+
+            if (recordEnd > recordStart) {
+              const totalDuration = record.in_date - record.prev_date;
+              const moneyDiff = record.money - record.prev_money;
+
+              const stats = productStats.get(record.name) || {
+                earliestMoney: record.prev_money,
+                earliestDate: record.prev_date,
+                latestMoney: record.money,
+                latestDate: record.in_date,
+              };
+
+              // 更新最早和最晚记录
+              if (record.prev_date < stats.earliestDate) {
+                stats.earliestMoney = record.prev_money;
+                stats.earliestDate = record.prev_date;
+              }
+              if (record.in_date > stats.latestDate) {
+                stats.latestMoney = record.money;
+                stats.latestDate = record.in_date;
+              }
+
+              productStats.set(record.name, stats);
+            }
+          }
+        });
+
+        // 合并理财数据
+        productStats.forEach((stats, name) => {
+          // 计算收益金额和年化收益率
+          const earnings = stats.latestMoney - stats.earliestMoney;
+          const duration =
+            (stats.latestDate - stats.earliestDate) / (24 * 60 * 60 * 1000);
+          const rate =
+            earnings > 0 && duration > 0
+              ? (earnings * 365 * 100) / (stats.earliestMoney * duration)
+              : 0;
+
+          // 明细数据
+          const detailKey = `${period.period}-理财-${name}`;
+          const detailItem = detail.get(detailKey) || {
+            period: period.period,
+            name: `理财-${name}`,
+            total_money: 0,
+            earnings: 0,
+            rate: 0,
+          };
+          detailItem.total_money += stats.earliestMoney;
+          detailItem.earnings += earnings;
+          detailItem.rate = rate;
+          detail.set(detailKey, detailItem);
+
+          // 汇总数据
+          const summaryKey = period.period;
+          const summaryItem = summary.get(summaryKey) || {
+            period: period.period,
+            total_money: 0,
+            earnings: 0,
+            expected_total: 0,
+            actual_total: 0,
+          };
+          summaryItem.total_money += stats.earliestMoney;
+          summaryItem.earnings += earnings;
+          summaryItem.expected_total += stats.earliestMoney + earnings;
+          summaryItem.actual_total += stats.earliestMoney + earnings;
+          summary.set(summaryKey, summaryItem);
         });
       });
 
-      // 处理理财收益
-      investmentEarnings.forEach((item: any) => {
-        const key = `${item.period}-${item.owner}`;
-        const existing = summary.get(key) || {
-          period: item.period,
-          owner: item.owner,
-          savings_money: 0,
-          savings_earnings: 0,
-          savings_rate: 0,
-          investment_money: 0,
-          investment_earnings: 0,
-          investment_rate: 0,
-        };
+      // 处理汇总数据的年化率
+      const summaryResult = Array.from(summary.values()).map((item) => ({
+        ...item,
+        rate:
+          item.total_money > 0
+            ? (item.earnings * 365 * 100) /
+              (item.total_money *
+                ((endDate - startDate) / (24 * 60 * 60 * 1000)))
+            : 0,
+      }));
 
-        existing.investment_money = item.total_money || 0;
-        existing.investment_earnings = item.earnings || 0;
-        existing.investment_rate = item.rate || 0;
-
-        summary.set(key, existing);
-      });
-
-      return Array.from(summary.values()).sort((a, b) => {
-        const periodCompare = a.period.localeCompare(b.period);
-        if (periodCompare !== 0) return periodCompare;
-        return a.owner.localeCompare(b.owner);
-      });
+      // 返回汇总和明细数据
+      return {
+        summary: summaryResult.sort((a, b) => a.period.localeCompare(b.period)),
+        detail: Array.from(detail.values()).sort((a, b) => {
+          const periodCompare = a.period.localeCompare(b.period);
+          if (periodCompare !== 0) return periodCompare;
+          return a.name.localeCompare(b.name);
+        }),
+      };
     } catch (error) {
       console.error('获取财务汇总失败:', error);
       throw error;

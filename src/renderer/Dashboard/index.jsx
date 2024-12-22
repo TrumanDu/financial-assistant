@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Breadcrumb,
   Card,
@@ -8,139 +8,298 @@ import {
   Typography,
   DatePicker,
 } from '@douyinfe/semi-ui';
-import * as dateFns from 'date-fns';
+import ReactECharts from 'echarts-for-react';
+
+import baiduAnalyticsRenderer from './baiduAnalytics';
 
 const { Text } = Typography;
 
 function Dashboard() {
-  const [dimension, setDimension] = useState('mouth');
+  const [dimension, setDimension] = useState('month');
   const [dateRange, setDateRange] = useState(() => {
     const now = new Date();
-    const currentYear = now.getFullYear();
     return {
-      start: new Date(currentYear, 0, 1).getTime(),
-      end: new Date(currentYear + 1, 11, 31).getTime(),
+      start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+      end: new Date(now.getFullYear(), now.getMonth() + 1, 0).getTime(),
     };
   });
-  const [summary, setSummary] = useState([]);
+  const [summaryData, setSummaryData] = useState([]);
+  const [detailData, setDetailData] = useState([]);
 
-  const getSummary = useCallback(async () => {
+  const baiduAnalytics = () => {
     try {
-      const data = window.electron.ipcRenderer.ipcSendSync(
+      console.log('baidu analytics');
+      baiduAnalyticsRenderer('024ca774b3b9216529c7f13c2b471974', (_hmt) => {
+        _hmt.push(['_trackPageview', '/']);
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const getData = useCallback(async () => {
+    try {
+      const { summary, detail } = window.electron.ipcRenderer.ipcSendSync(
         'getFinancialSummary',
         {
-          data: {
-            startDate: dateRange.start,
-            endDate: dateRange.end,
-            dimension,
-          },
+          startDate: dateRange.start,
+          endDate: dateRange.end,
+          dimension,
         },
       );
-      console.log(data);
-      setSummary(data);
+      setSummaryData(summary);
+      setDetailData(detail);
     } catch (error) {
-      console.error('获取汇总数据失败:', error);
+      console.error('获取数据失败:', error);
     }
   }, [dateRange, dimension]);
 
   useEffect(() => {
-    getSummary();
+    getData();
   }, [dateRange, dimension]);
 
-  const columns = [
+  useEffect(() => {
+    baiduAnalytics();
+  }, []);
+
+  const summaryColumns = [
     {
       title: '时间',
       dataIndex: 'period',
       width: 120,
-      fixed: 'left',
     },
     {
-      title: '账户',
-      dataIndex: 'owner',
-      width: 100,
-      fixed: 'left',
+      title: '总本金',
+      dataIndex: 'total_money',
+      width: 150,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
-      title: '存款',
-      children: [
-        {
-          title: '本金',
-          dataIndex: 'savings_money',
-          width: 150,
-          render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-        },
-        {
-          title: '收益',
-          dataIndex: 'savings_earnings',
-          width: 150,
-          render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-        },
-        {
-          title: '年化率',
-          dataIndex: 'savings_rate',
-          width: 100,
-          render: (text) => `${Number(text).toFixed(2)}%`,
-        },
-      ],
+      title: '总收益',
+      dataIndex: 'earnings',
+      width: 150,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
-      title: '理财',
-      children: [
-        {
-          title: '本金',
-          dataIndex: 'investment_money',
-          width: 150,
-          render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-        },
-        {
-          title: '收益',
-          dataIndex: 'investment_earnings',
-          width: 150,
-          render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-        },
-        {
-          title: '年化率',
-          dataIndex: 'investment_rate',
-          width: 100,
-          render: (text) => `${Number(text).toFixed(2)}%`,
-        },
-      ],
+      title: '综合年化率',
+      dataIndex: 'rate',
+      width: 120,
+      render: (text) => `${Number(text).toFixed(2)}%`,
     },
     {
-      title: '总计',
-      children: [
+      title: '家庭账户汇预期总金额',
+      dataIndex: 'expected_total',
+      width: 180,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
+    },
+    {
+      title: '家庭账户汇真实总金额',
+      dataIndex: 'actual_total',
+      width: 180,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
+    },
+  ];
+
+  const detailColumns = [
+    {
+      title: '时间',
+      dataIndex: 'period',
+      width: 120,
+    },
+    {
+      title: '产品名称',
+      dataIndex: 'name',
+      width: 200,
+    },
+    {
+      title: '本金',
+      dataIndex: 'total_money',
+      width: 150,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
+    },
+    {
+      title: '收益',
+      dataIndex: 'earnings',
+      width: 150,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
+    },
+    {
+      title: '年化收益率',
+      dataIndex: 'rate',
+      width: 120,
+      render: (text) => `${Number(text).toFixed(2)}%`,
+    },
+  ];
+
+  // 处理图表数据
+  const chartOptions = useMemo(() => {
+    const periods = summaryData.map((item) => item.period);
+    const rates = summaryData.map((item) => Number(item.rate.toFixed(2)));
+
+    // 按产品分组处理数据
+    const productEarnings = {};
+    const productNames = new Set();
+
+    detailData.forEach((item) => {
+      if (!productEarnings[item.period]) {
+        productEarnings[item.period] = {};
+      }
+      productEarnings[item.period][item.name] = Number(
+        item.earnings.toFixed(2),
+      );
+      productNames.add(item.name);
+    });
+
+    // 转换为图表数据
+    const seriesData = Array.from(productNames).map((name) => ({
+      name,
+      type: 'bar',
+      stack: 'earnings',
+      data: periods.map((period) => productEarnings[period]?.[name] || 0),
+      itemStyle: {
+        borderRadius: [0, 0, 0, 0],
+      },
+      label: {
+        show: true,
+        position: 'top',
+        formatter: (params) => {
+          const periodTotal = periods.map((_, index) => {
+            return seriesData.reduce(
+              (sum, series) => sum + (series.data[index] || 0),
+              0,
+            );
+          })[params.dataIndex];
+
+          const isLastBar = params.seriesIndex === seriesData.length - 1;
+          if (isLastBar) {
+            return periodTotal > 0
+              ? `${periodTotal.toLocaleString('zh-CN')} 元`
+              : '';
+          }
+          return '';
+        },
+      },
+    }));
+
+    return {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: {
+          type: 'cross',
+        },
+        formatter: (params) => {
+          let result = `${params[0].axisValue}<br/>`;
+          let total = 0;
+
+          // 先显示各产品收益
+          params.forEach((param) => {
+            if (param.seriesType === 'bar') {
+              result += `${param.marker}${param.seriesName}: ${param.value.toLocaleString('zh-CN')} 元<br/>`;
+              total += param.value;
+            }
+          });
+
+          // 显示总收益和年化率
+          result += `<br/>总收益: ${total.toLocaleString('zh-CN')} 元<br/>`;
+          const rateParam = params.find(
+            (param) => param.seriesName === '综合年化率',
+          );
+          if (rateParam) {
+            result += `综合年化率: ${rateParam.value}%`;
+          }
+          return result;
+        },
+      },
+      legend: {
+        type: 'scroll',
+        bottom: 0,
+        left: 'center',
+        height: 30,
+      },
+      grid: {
+        right: '15%',
+        top: '40px',
+        bottom: '40px',
+        containLabel: true,
+      },
+      xAxis: {
+        type: 'category',
+        data: periods,
+      },
+      yAxis: [
         {
-          title: '本金',
-          width: 150,
-          render: (_, record) =>
-            `${Number(
-              record.savings_money + record.investment_money,
-            ).toLocaleString('zh-CN')} 元`,
+          type: 'value',
+          name: '收益(元)',
+          position: 'left',
+          axisLabel: {
+            formatter: (value) => value.toLocaleString('zh-CN'),
+          },
         },
         {
-          title: '收益',
-          width: 150,
-          render: (_, record) =>
-            `${Number(
-              record.savings_earnings + record.investment_earnings,
-            ).toLocaleString('zh-CN')} 元`,
-        },
-        {
-          title: '年化率',
-          width: 100,
-          render: (_, record) => {
-            const totalMoney = record.savings_money + record.investment_money;
-            if (totalMoney === 0) return '0.00%';
-            const weightedRate =
-              (record.savings_money * record.savings_rate +
-                record.investment_money * record.investment_rate) /
-              totalMoney;
-            return `${Number(weightedRate).toFixed(2)}%`;
+          type: 'value',
+          name: '年化率(%)',
+          position: 'right',
+          offset: 40,
+          axisLine: {
+            show: true,
+            lineStyle: {
+              color: '#91CC75',
+            },
+          },
+          axisLabel: {
+            formatter: '{value}%',
           },
         },
       ],
-    },
-  ];
+      series: [
+        ...seriesData.map((series) => ({
+          ...series,
+          label: {
+            show: true,
+            position: 'bottom',
+            formatter: (params) => {
+              const periodTotal = periods.map((_, index) => {
+                return seriesData.reduce(
+                  (sum, series) => sum + (series.data[index] || 0),
+                  0,
+                );
+              })[params.dataIndex];
+
+              const isLastBar = params.seriesIndex === seriesData.length - 1;
+              if (isLastBar) {
+                return periodTotal > 0
+                  ? `${periodTotal.toLocaleString('zh-CN')} 元`
+                  : '';
+              }
+              return '';
+            },
+            offset: [0, 10],
+            color: '#000',
+          },
+        })),
+        {
+          name: '综合年化率',
+          type: 'line',
+          yAxisIndex: 1,
+          data: rates,
+          symbol: 'circle',
+          symbolSize: 8,
+          lineStyle: {
+            width: 2,
+          },
+          itemStyle: {
+            color: '#91CC75',
+          },
+          label: {
+            show: true,
+            position: 'top',
+            formatter: (params) => `${params.value}%`,
+            color: '#91CC75',
+          },
+        },
+      ],
+    };
+  }, [summaryData, detailData]);
 
   return (
     <div
@@ -199,13 +358,30 @@ function Dashboard() {
               <Select.Option value="year">年</Select.Option>
             </Select>
           </Space>
-          <Card>
+
+          <Card title="收益趋势" style={{ width: '100%' }}>
+            <ReactECharts
+              option={chartOptions}
+              style={{ height: '400px' }}
+              opts={{ renderer: 'svg' }}
+            />
+          </Card>
+
+          <Card title="收益汇总" style={{ width: '100%' }}>
             <Table
-              columns={columns}
-              dataSource={summary}
+              columns={summaryColumns}
+              dataSource={summaryData}
               pagination={false}
               bordered
-              scroll={{ x: 1500 }}
+            />
+          </Card>
+
+          <Card title="收益明细" style={{ width: '100%' }}>
+            <Table
+              columns={detailColumns}
+              dataSource={detailData}
+              pagination={false}
+              bordered
             />
           </Card>
         </Space>
