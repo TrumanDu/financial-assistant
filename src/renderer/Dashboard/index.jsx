@@ -136,16 +136,34 @@ function Dashboard() {
     },
   ];
 
-  // 处理图表数据
+  // 添加一个正序排序的数据源，专门用于图表
+  const chartSortedData = useMemo(() => {
+    return [...summaryData].sort((a, b) => a.period.localeCompare(b.period));
+  }, [summaryData]);
+
+  const chartSortedDetailData = useMemo(() => {
+    return [...detailData].sort((a, b) => a.period.localeCompare(b.period));
+  }, [detailData]);
+
+  // 表格保持倒序
+  const sortedSummaryData = useMemo(() => {
+    return [...summaryData].sort((a, b) => b.period.localeCompare(a.period));
+  }, [summaryData]);
+
+  const sortedDetailData = useMemo(() => {
+    return [...detailData].sort((a, b) => b.period.localeCompare(a.period));
+  }, [detailData]);
+
+  // 修改 chartOptions 使用正序数据
   const chartOptions = useMemo(() => {
-    const periods = summaryData.map((item) => item.period);
-    const rates = summaryData.map((item) => Number(item.rate.toFixed(2)));
+    const periods = chartSortedData.map((item) => item.period);
+    const rates = chartSortedData.map((item) => Number(item.rate.toFixed(2)));
 
     // 按产品分组处理数据
     const productEarnings = {};
     const productNames = new Set();
 
-    detailData.forEach((item) => {
+    chartSortedDetailData.forEach((item) => {
       if (!productEarnings[item.period]) {
         productEarnings[item.period] = {};
       }
@@ -304,7 +322,7 @@ function Dashboard() {
         },
       ],
     };
-  }, [summaryData, detailData]);
+  }, [chartSortedData, chartSortedDetailData]);
 
   return (
     <div
@@ -379,7 +397,7 @@ function Dashboard() {
               <Card title="收益汇总" style={{ width: '100%' }}>
                 <Table
                   columns={summaryColumns}
-                  dataSource={summaryData}
+                  dataSource={sortedSummaryData}
                   pagination={false}
                   bordered
                 />
@@ -388,7 +406,7 @@ function Dashboard() {
               <Card title="收益明细" style={{ width: '100%' }}>
                 <Table
                   columns={detailColumns}
-                  dataSource={detailData}
+                  dataSource={sortedDetailData}
                   pagination={false}
                   bordered
                 />
