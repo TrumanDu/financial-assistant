@@ -72,35 +72,41 @@ function Dashboard() {
       title: '时间',
       dataIndex: 'period',
       width: 120,
+      sorter: (a, b) => a.period.localeCompare(b.period),
     },
     {
       title: '总本金',
       dataIndex: 'total_money',
       width: 150,
+      sorter: (a, b) => a.total_money - b.total_money,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
       title: '总收益',
       dataIndex: 'earnings',
       width: 150,
+      sorter: (a, b) => a.earnings - b.earnings,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
       title: '综合年化率',
       dataIndex: 'rate',
       width: 120,
+      sorter: (a, b) => a.rate - b.rate,
       render: (text) => `${Number(text).toFixed(2)}%`,
     },
     {
       title: '家庭账户汇预期总金额',
       dataIndex: 'expected_total',
       width: 180,
+      sorter: (a, b) => a.expected_total - b.expected_total,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
       title: '家庭账户汇真实总金额',
       dataIndex: 'actual_total',
       width: 180,
+      sorter: (a, b) => a.actual_total - b.actual_total,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
   ];
@@ -110,28 +116,33 @@ function Dashboard() {
       title: '时间',
       dataIndex: 'period',
       width: 120,
+      sorter: (a, b) => a.period.localeCompare(b.period),
     },
     {
       title: '产品名称',
       dataIndex: 'name',
       width: 200,
+      sorter: (a, b) => a.name.localeCompare(b.name),
     },
     {
       title: '本金',
       dataIndex: 'total_money',
       width: 150,
+      sorter: (a, b) => a.total_money - b.total_money,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
       title: '收益',
       dataIndex: 'earnings',
       width: 150,
+      sorter: (a, b) => a.earnings - b.earnings,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
       title: '年化收益率',
       dataIndex: 'rate',
       width: 120,
+      sorter: (a, b) => a.rate - b.rate,
       render: (text) => `${Number(text).toFixed(2)}%`,
     },
   ];
@@ -154,15 +165,16 @@ function Dashboard() {
     return [...detailData].sort((a, b) => b.period.localeCompare(a.period));
   }, [detailData]);
 
-  // 修改 chartOptions 使用正序数据
-  const chartOptions = useMemo(() => {
+  // 分别创建两个图表的配置
+  const earningsChartOptions = useMemo(() => {
     const periods = chartSortedData.map((item) => item.period);
-    const rates = chartSortedData.map((item) => Number(item.rate.toFixed(2)));
 
     // 按产品分组处理数据
     const productEarnings = {};
     const productNames = new Set();
+    const productTotalEarnings = new Map(); // 用于存储每个产品的总收益
 
+    // 第一步：收集数据和计算每个产品的总收益
     chartSortedDetailData.forEach((item) => {
       if (!productEarnings[item.period]) {
         productEarnings[item.period] = {};
@@ -171,139 +183,132 @@ function Dashboard() {
         item.earnings.toFixed(2),
       );
       productNames.add(item.name);
+
+      // 累计每个产品的总收益
+      const currentTotal = productTotalEarnings.get(item.name) || 0;
+      productTotalEarnings.set(
+        item.name,
+        currentTotal + Number(item.earnings.toFixed(2)),
+      );
+    });
+
+    // 按总收益排序产品名称
+    const sortedProductNames = Array.from(productNames).sort((a, b) => {
+      const totalA = productTotalEarnings.get(a) || 0;
+      const totalB = productTotalEarnings.get(b) || 0;
+      return totalB - totalA; // 从大到小排序，这样收益大的会在底部
     });
 
     // 转换为图表数据
-    const seriesData = Array.from(productNames).map((name) => ({
+    const seriesData = sortedProductNames.map((name) => ({
       name,
       type: 'bar',
       stack: 'earnings',
       data: periods.map((period) => productEarnings[period]?.[name] || 0),
-      itemStyle: {
-        borderRadius: [0, 0, 0, 0],
-      },
       label: {
         show: true,
-        position: 'top',
-        formatter: (params) => {
-          const periodTotal = periods.map((_, index) => {
-            return seriesData.reduce(
-              (sum, series) => sum + (series.data[index] || 0),
-              0,
-            );
-          })[params.dataIndex];
-
-          const isLastBar = params.seriesIndex === seriesData.length - 1;
-          if (isLastBar) {
-            return periodTotal > 0
-              ? `${periodTotal.toLocaleString('zh-CN')} 元`
-              : '';
-          }
-          return '';
-        },
+        position: 'inside',
       },
     }));
 
     return {
+      title: {
+        text: '收益趋势',
+        left: 'center',
+      },
       tooltip: {
         trigger: 'axis',
         axisPointer: {
           type: 'cross',
         },
-        formatter: (params) => {
-          let result = `${params[0].axisValue}<br/>`;
-          let total = 0;
-
-          // 先显示各产品收益
-          params.forEach((param) => {
-            if (param.seriesType === 'bar') {
-              result += `${param.marker}${param.seriesName}: ${param.value.toLocaleString('zh-CN')} 元<br/>`;
-              total += param.value;
-            }
-          });
-
-          // 显示总收益和年化率
-          result += `<br/>总收益: ${total.toLocaleString('zh-CN')} 元<br/>`;
-          const rateParam = params.find(
-            (param) => param.seriesName === '综合年化率',
-          );
-          if (rateParam) {
-            result += `综合年化率: ${rateParam.value}%`;
-          }
-          return result;
-        },
       },
       legend: {
-        type: 'scroll',
         bottom: 0,
-        left: 'center',
-        height: 30,
       },
       grid: {
-        right: '15%',
-        top: '40px',
-        bottom: '40px',
+        left: '10%',
+        right: '10%',
+        bottom: '15%',
+        top: '15%',
         containLabel: true,
       },
       xAxis: {
         type: 'category',
         data: periods,
-      },
-      yAxis: [
-        {
-          type: 'value',
-          name: '收益(元)',
-          position: 'left',
-          axisLabel: {
-            formatter: (value) => value.toLocaleString('zh-CN'),
-          },
+        axisLabel: {
+          rotate: 30,
         },
+      },
+      yAxis: {
+        type: 'value',
+        name: '收益(元)',
+        axisLabel: {
+          formatter: (value) => value.toLocaleString('zh-CN'),
+        },
+      },
+      series: [
+        ...seriesData,
         {
-          type: 'value',
-          name: '年化率(%)',
-          position: 'right',
-          offset: 40,
-          axisLine: {
+          name: '总收益',
+          type: 'line',
+          data: periods.map((period) => {
+            const total = seriesData.reduce(
+              (sum, series) =>
+                sum + (series.data[periods.indexOf(period)] || 0),
+              0,
+            );
+            return Number(total.toFixed(2));
+          }),
+          label: {
             show: true,
-            lineStyle: {
-              color: '#91CC75',
-            },
-          },
-          axisLabel: {
-            formatter: '{value}%',
+            position: 'top',
+            formatter: (params) => `${params.value.toLocaleString('zh-CN')} 元`,
           },
         },
       ],
-      series: [
-        ...seriesData.map((series) => ({
-          ...series,
-          label: {
-            show: true,
-            position: 'bottom',
-            formatter: (params) => {
-              const periodTotal = periods.map((_, index) => {
-                return seriesData.reduce(
-                  (sum, series) => sum + (series.data[index] || 0),
-                  0,
-                );
-              })[params.dataIndex];
+    };
+  }, [chartSortedData, chartSortedDetailData]);
 
-              const isLastBar = params.seriesIndex === seriesData.length - 1;
-              if (isLastBar) {
-                return periodTotal > 0
-                  ? `${periodTotal.toLocaleString('zh-CN')} 元`
-                  : '';
-              }
-              return '';
-            },
-            offset: [0, 10],
-            color: '#000',
-          },
-        })),
+  const rateChartOptions = useMemo(() => {
+    const periods = chartSortedData.map((item) => item.period);
+    const rates = chartSortedData.map((item) => Number(item.rate.toFixed(2)));
+
+    return {
+      title: {
+        text: '年化率趋势',
+        left: 'center',
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: {
+          type: 'cross',
+        },
+      },
+      grid: {
+        left: '10%',
+        right: '10%',
+        bottom: '15%',
+        top: '15%',
+      },
+      xAxis: {
+        type: 'category',
+        data: periods,
+        axisLabel: {
+          rotate: 30,
+        },
+      },
+      yAxis: {
+        type: 'value',
+        name: '年化率(%)',
+        position: 'left',
+        axisLabel: {
+          formatter: '{value}%',
+        },
+      },
+      series: [
         {
           name: '综合年化率',
           type: 'line',
-          yAxisIndex: 1,
           data: rates,
           symbol: 'circle',
           symbolSize: 8,
@@ -322,7 +327,7 @@ function Dashboard() {
         },
       ],
     };
-  }, [chartSortedData, chartSortedDetailData]);
+  }, [chartSortedData]);
 
   return (
     <div
@@ -386,12 +391,23 @@ function Dashboard() {
             <Spin tip="加载中..." size="large" />
           ) : (
             <>
-              <Card title="收益趋势" style={{ width: '100%' }}>
-                <ReactECharts
-                  option={chartOptions}
-                  style={{ height: '400px' }}
-                  opts={{ renderer: 'svg' }}
-                />
+              <Card title="收益趋势分析" style={{ width: '100%' }}>
+                <div style={{ display: 'flex', gap: '20px' }}>
+                  <div style={{ flex: 1 }}>
+                    <ReactECharts
+                      option={earningsChartOptions}
+                      style={{ height: '400px' }}
+                      opts={{ renderer: 'svg' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <ReactECharts
+                      option={rateChartOptions}
+                      style={{ height: '400px' }}
+                      opts={{ renderer: 'svg' }}
+                    />
+                  </div>
+                </div>
               </Card>
 
               <Card title="收益汇总" style={{ width: '100%' }}>
