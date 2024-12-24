@@ -4,7 +4,6 @@
 
 ![](./screen/screen-main.png)
 
-
 ## Install
 
 Clone the repo and install dependencies:
@@ -34,5 +33,3 @@ npm run package
 ```
 npm run package -- --mac
 ```
-
-
