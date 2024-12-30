@@ -21,9 +21,7 @@ jobs:
 
       - name: npm install
         run: |
-          cd release/app
-          npm install
-          cd ../../
+          python3 -m pip install distutils
           npm install
 
       - name: npm test

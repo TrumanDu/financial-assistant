@@ -24,9 +24,7 @@ jobs:
 
       - name: Install and build
         run: |
-          cd release/app
-          npm install
-          cd ../../
+          python3 -m pip install distutils
           npm install
           npm run postinstall
           npm run build
