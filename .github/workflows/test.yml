@@ -21,7 +21,7 @@ jobs:
 
       - name: npm install
         run: |
-          python3 -m pip install setuptools
+          python3 -m pip install --break-system-packages setuptools
           npm install
 
       - name: npm test
