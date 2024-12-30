@@ -1,8 +1,9 @@
 name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   publish:
@@ -23,6 +24,9 @@ jobs:
 
       - name: Install and build
         run: |
+          cd release/app
+          npm install
+          cd ../../
           npm install
           npm run postinstall
           npm run build

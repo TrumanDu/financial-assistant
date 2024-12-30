@@ -21,6 +21,9 @@ jobs:
 
       - name: npm install
         run: |
+          cd release/app
+          npm install
+          cd ../../
           npm install
 
       - name: npm test
