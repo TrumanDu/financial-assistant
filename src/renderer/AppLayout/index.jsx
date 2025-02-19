@@ -7,6 +7,7 @@ import {
   IconSave,
   IconCalendar,
   IconShoppingBag,
+  IconCreditCard,
 } from '@douyinfe/semi-icons';
 
 function AppLayout() {
@@ -38,6 +39,17 @@ function AppLayout() {
               },
             },
             {
+              itemKey: '/record_assets',
+              text: '资产记录',
+              icon: (
+                <IconCreditCard size="large" style={{ color: '#FF9800' }} />
+              ),
+              onClick: () => {
+                navigate('/record_assets');
+                setSelectKey(['/record_assets']);
+              },
+            },
+            {
               itemKey: '/investment_record',
               text: '理财收益记录',
               icon: <IconCalendar size="large" style={{ color: '#FF9800' }} />,
@@ -64,6 +76,17 @@ function AppLayout() {
               onClick: () => {
                 navigate('/investment');
                 setSelectKey(['/investment']);
+              },
+            },
+            {
+              itemKey: '/bill_record',
+              text: '账单记录',
+              icon: (
+                <IconShoppingBag size="large" style={{ color: '#4CAF50' }} />
+              ),
+              onClick: () => {
+                navigate('/bill_record');
+                setSelectKey(['/bill_record']);
               },
             },
           ]}

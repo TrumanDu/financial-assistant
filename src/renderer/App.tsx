@@ -8,6 +8,8 @@ import Dashboard from './Dashboard';
 import SavingsRecord from './SavingsRecord';
 import Investment from './Investment';
 import InvestmentRecord from './InvestmentRecord';
+import RecordAssets from './RecordAssets';
+import BillRecord from './BillRecord';
 
 export default function App() {
   return (
@@ -18,6 +20,8 @@ export default function App() {
           <Route path="savings_record" element={<SavingsRecord />} />
           <Route path="investment" element={<Investment />} />
           <Route path="investment_record" element={<InvestmentRecord />} />
+          <Route path="record_assets" element={<RecordAssets />} />
+          <Route path="bill_record" element={<BillRecord />} />
         </Route>
       </Routes>
     </Router>

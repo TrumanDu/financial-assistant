@@ -84,6 +84,42 @@ export default class InitCheck {
         FOREIGN KEY (investment_id) REFERENCES investment (id)
       )
     `);
+    // 记录资产
+    db.run(`
+      CREATE TABLE IF NOT EXISTS assets_record (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT '人民币',
+        date INTEGER NOT NULL,
+        memo TEXT,
+        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+      )
+    `);
+    // 资产趋势
+    db.run(`
+        CREATE TABLE IF NOT EXISTS assets_trend (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date INTEGER NOT NULL UNIQUE,
+          amount REAL NOT NULL DEFAULT 0,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        )
+      `);
+
+    // 在 initDatabase 方法中添加新表创建语句
+    db.run(`
+      CREATE TABLE IF NOT EXISTS bill_record (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        month INTEGER NOT NULL,
+        memo TEXT,
+        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+      )
+    `);
 
     db.close();
   }

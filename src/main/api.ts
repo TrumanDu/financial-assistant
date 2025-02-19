@@ -1,3 +1,4 @@
+/* eslint-disable promise/always-return */
 /* eslint-disable camelcase */
 /* eslint-disable no-console */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -732,6 +733,407 @@ class API {
       console.error('获取财务汇总失败:', error);
       throw error;
     }
+  }
+
+  // 获取所有资产记录
+  public async getAssetsRecordAll() {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT * FROM assets_record ORDER BY created_at DESC',
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        },
+      );
+    });
+  }
+
+  // 更新资产趋势记录
+  private async updateAssetsTrend(date: number) {
+    try {
+      // 获取指定日期的所有资产汇总
+      const summary = await new Promise((resolve, reject) => {
+        this.db.all(
+          `SELECT
+            SUM(amount) as total_amount
+          FROM assets_record
+          WHERE date <= ?
+        `,
+          [date],
+          (err, rows) => {
+            if (err) reject(err);
+            resolve(rows || []);
+          },
+        );
+      });
+
+      // 检查当天是否已有记录
+      const existingRecord = await new Promise((resolve, reject) => {
+        this.db.get(
+          'SELECT id FROM assets_trend WHERE date = ?',
+          [date],
+          (err, row) => {
+            if (err) reject(err);
+            resolve(row);
+          },
+        );
+      });
+
+      if (existingRecord) {
+        // 更新现有记录
+        const stmt = this.db.prepare(`
+          UPDATE assets_trend
+          SET
+            amount = ?,
+            updated_at = ?
+          WHERE date = ?
+        `);
+
+        const now = Date.now();
+        const totalAmount = summary.length > 0 ? summary[0].total_amount : 0;
+
+        await new Promise((resolve, reject) => {
+          stmt.run([totalAmount, now, date], (err) => {
+            if (err) reject(err);
+            resolve(true);
+          });
+        });
+      } else {
+        // 插入新记录
+        const stmt = this.db.prepare(`
+          INSERT INTO assets_trend
+          (date, amount)
+          VALUES (?, ?)
+        `);
+
+        const totalAmount = summary.length > 0 ? summary[0].total_amount : 0;
+
+        await new Promise((resolve, reject) => {
+          stmt.run([date, totalAmount], (err) => {
+            if (err) reject(err);
+            resolve(true);
+          });
+        });
+      }
+
+      return true;
+    } catch (error) {
+      log.error('更新资产趋势失败:', error);
+      throw error;
+    }
+  }
+
+  // 添加资产记录
+  public async addAssetsRecord(arg: any) {
+    const { data } = arg;
+    const { record } = data;
+    const { type, amount, currency, date, memo } = record;
+    return new Promise((resolve, reject) => {
+      const stmt = this.db.prepare(`
+        INSERT INTO assets_record (type, amount, currency, date, memo)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      stmt.run([type, amount, currency, date, memo], async (err) => {
+        if (err) reject(err);
+        // 更新资产趋势
+        await this.updateAssetsTrend(date);
+        resolve(record);
+      });
+    });
+  }
+
+  // 更新资产记录
+  public async editAssetsRecord(arg: any) {
+    const { data } = arg;
+    const { record } = data;
+    const { type, amount, currency, date, memo, id } = record;
+    return new Promise((resolve, reject) => {
+      const stmt = this.db.prepare(`
+        UPDATE assets_record
+        SET type = ?, amount = ?, currency = ?, date = ?, memo = ?, updated_at = ?
+        WHERE id = ?
+      `);
+
+      const now = Date.now();
+      stmt.run([type, amount, currency, date, memo, now, id], async (err) => {
+        if (err) reject(err);
+        // 更新资产趋势
+        await this.updateAssetsTrend(date);
+        resolve({ ...record, updated_at: now });
+      });
+    });
+  }
+
+  // 删除资产记录
+  public async deleteAssetsRecord(arg: any) {
+    const { data } = arg;
+    const { id } = data;
+    // 获取记录的日期
+    const record = await new Promise((resolve, reject) => {
+      this.db.get(
+        'SELECT date FROM assets_record WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) reject(err);
+          resolve(row);
+        },
+      );
+    });
+
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'DELETE FROM assets_record WHERE id = ?',
+        [id],
+        async (err) => {
+          if (err) reject(err);
+          // 更新资产趋势
+          if (record) {
+            await this.updateAssetsTrend(record.date);
+          }
+          resolve({ success: true });
+        },
+      );
+    });
+  }
+
+  // 获取资产汇总
+  public async getAssetsSummary() {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        `SELECT
+          SUM(amount) as total_amount
+        FROM assets_record`,
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        },
+      );
+    });
+  }
+
+  // 获取资产趋势数据
+  public async getAssetsTrend(arg: any) {
+    const { data } = arg;
+    const { startDate, endDate } = data;
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        `WITH monthly_assets AS (
+          SELECT
+            strftime('%Y-%m', datetime(date/1000, 'unixepoch')) as month,
+            MAX(date) as max_date,
+            amount
+          FROM assets_trend
+          WHERE date >= ? AND date <= ?
+          GROUP BY strftime('%Y-%m', datetime(date/1000, 'unixepoch'))
+        )
+        SELECT
+          max_date as date,
+          amount
+        FROM monthly_assets
+        ORDER BY month DESC
+        LIMIT 12`,
+        [startDate, endDate],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows || []);
+        },
+      );
+    });
+  }
+
+  // 获取所有账单记录
+  public async getBillRecordAll(arg: any) {
+    const { data } = arg;
+    const { page = 1, pageSize = 10, account, month } = data;
+    const offset = (page - 1) * pageSize;
+    const params = [];
+    let whereClause = '';
+
+    if (account || month) {
+      whereClause = 'WHERE ';
+      const conditions = [];
+
+      if (account) {
+        conditions.push('account = ?');
+        params.push(account);
+      }
+
+      if (month) {
+        conditions.push('month = ?');
+        params.push(month);
+      }
+
+      whereClause += conditions.join(' AND ');
+    }
+
+    params.push(pageSize, offset);
+
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        `SELECT
+          *,
+          (SELECT COUNT(*) FROM bill_record ${whereClause}) as total
+        FROM bill_record
+        ${whereClause}
+        ORDER BY month DESC, created_at DESC, id DESC
+        LIMIT ? OFFSET ?`,
+        params,
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        },
+      );
+    });
+  }
+
+  // 添加账单记录
+  public async addBillRecord(arg: any) {
+    const { data } = arg;
+    const { record } = data;
+    const { account, amount, month, memo } = record;
+
+    // 检查是否已存在该账户当月的记录
+    const checkExisting = () => {
+      return new Promise((resolve, reject) => {
+        const monthStart = new Date(month);
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        monthEnd.setDate(0);
+        monthEnd.setHours(23, 59, 59, 999);
+
+        this.db.get(
+          `SELECT id FROM bill_record
+           WHERE account = ?
+           AND month >= ?
+           AND month <= ?`,
+          [account, monthStart.getTime(), monthEnd.getTime()],
+          (err, row) => {
+            if (err) reject(err);
+            resolve(row);
+          },
+        );
+      });
+    };
+
+    return new Promise((resolve, reject) => {
+      checkExisting()
+        .then((existing) => {
+          if (existing) {
+            resolve({
+              error: `${account}在${new Date(month).getFullYear()}年${new Date(month).getMonth() + 1}月已有账单记录`,
+            });
+            return;
+          }
+
+          const stmt = this.db.prepare(`
+            INSERT INTO bill_record (account, amount, month, memo)
+            VALUES (?, ?, ?, ?)
+          `);
+
+          stmt.run([account, amount, month, memo], (err) => {
+            if (err) reject(err);
+            resolve({ success: true });
+          });
+        })
+        .catch(reject);
+    });
+  }
+
+  // 更新账单记录
+  public async editBillRecord(arg: any) {
+    const { data } = arg;
+    const { record } = data;
+    const { account, amount, month, memo, id } = record;
+
+    // 检查是否已存在该账户当月的其他记录
+    const checkExisting = () => {
+      return new Promise((resolve, reject) => {
+        const monthStart = new Date(month);
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        monthEnd.setDate(0);
+        monthEnd.setHours(23, 59, 59, 999);
+
+        this.db.get(
+          `SELECT id FROM bill_record
+           WHERE account = ?
+           AND month >= ?
+           AND month <= ?
+           AND id != ?`,
+          [account, monthStart.getTime(), monthEnd.getTime(), id],
+          (err, row) => {
+            if (err) reject(err);
+            resolve(row);
+          },
+        );
+      });
+    };
+
+    return new Promise((resolve, reject) => {
+      checkExisting()
+        .then((existing) => {
+          if (existing) {
+            resolve({
+              error: `${account}在${new Date(month).getFullYear()}年${new Date(month).getMonth() + 1}月已有账单记录`,
+            });
+            return;
+          }
+
+          const stmt = this.db.prepare(`
+            UPDATE bill_record
+            SET account = ?, amount = ?, month = ?, memo = ?, updated_at = ?
+            WHERE id = ?
+          `);
+
+          const now = Date.now();
+          stmt.run([account, amount, month, memo, now, id], (err) => {
+            if (err) reject(err);
+            resolve({ success: true });
+          });
+        })
+        .catch(reject);
+    });
+  }
+
+  // 删除账单记录
+  public async deleteBillRecord(arg: any) {
+    const { data } = arg;
+    const { id } = data;
+
+    return new Promise((resolve, reject) => {
+      this.db.run('DELETE FROM bill_record WHERE id = ?', [id], (err) => {
+        if (err) reject(err);
+        resolve({ success: true });
+      });
+    });
+  }
+
+  // 获取上月账单汇总
+  public async getLastMonthBillSummary() {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      this.db.all(
+        `SELECT
+          SUM(amount) as total_amount
+        FROM bill_record
+        WHERE month >= ? AND month <= ?`,
+        [lastMonth.getTime(), lastMonthEnd.getTime()],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows[0]?.total_amount || 0);
+        },
+      );
+    });
   }
 }
 

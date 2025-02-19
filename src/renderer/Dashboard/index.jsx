@@ -1,32 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Breadcrumb,
-  Card,
-  Select,
-  Space,
-  Table,
-  Typography,
-  DatePicker,
-  Spin,
-} from '@douyinfe/semi-ui';
+import React, { useEffect, useState } from 'react';
+import { Toast } from '@douyinfe/semi-ui';
 import ReactECharts from 'echarts-for-react';
+
+import MetricCard from './MetricCard';
 
 import baiduAnalyticsRenderer from './baiduAnalytics';
 
-const { Text } = Typography;
-
 function Dashboard() {
-  const [dimension, setDimension] = useState('month');
-  const [dateRange, setDateRange] = useState(() => {
-    const now = new Date();
-    return {
-      start: new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(),
-      end: new Date(now.getFullYear(), now.getMonth() + 1, 0).getTime(),
-    };
-  });
-  const [summaryData, setSummaryData] = useState([]);
-  const [detailData, setDetailData] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [totalAssets, setTotalAssets] = useState(0);
+  const [lastMonthBill, setLastMonthBill] = useState(0);
+  const [assetsTrend, setAssetsTrend] = useState([]);
+  const [assetsDistribution, setAssetsDistribution] = useState([]);
 
   const baiduAnalytics = () => {
     try {
@@ -39,295 +23,190 @@ function Dashboard() {
     }
   };
 
-  const getData = useCallback(async () => {
-    setLoading(true);
+  // 获取资产总额
+  const getAssetsSummary = () => {
     try {
-      const { summary, detail } = window.electron.ipcRenderer.ipcSendSync(
-        'getFinancialSummary',
-        {
-          startDate: dateRange.start,
-          endDate: dateRange.end,
-          dimension,
-        },
-      );
-      setSummaryData(summary);
-      setDetailData(detail);
+      const res = window.electron.ipcRenderer.ipcSendSync('getAssetsSummary');
+      if (res && res[0]) {
+        setTotalAssets(res[0].total_amount || 0);
+      }
     } catch (error) {
-      console.error('获取数据失败:', error);
-    } finally {
-      setLoading(false);
+      Toast.error('获取汇总数据失败');
+      console.error(error);
     }
-  }, [dateRange, dimension]);
+  };
 
-  useEffect(() => {
-    getData();
-  }, [dateRange, dimension]);
+  // 获取上月账单汇总
+  const getLastMonthBillSummary = () => {
+    try {
+      const amount = window.electron.ipcRenderer.ipcSendSync(
+        'getLastMonthBillSummary',
+      );
+      setLastMonthBill(amount);
+    } catch (error) {
+      Toast.error('获取上月账单汇总失败');
+      console.error(error);
+    }
+  };
+
+  // 获取资产趋势数据
+  const getAssetsTrend = () => {
+    // 获取最近12个月的数据
+    const endDate = new Date().getTime();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 11);
+    startDate.setDate(1);
+    startDate.setHours(0, 0, 0, 0);
+
+    try {
+      const trendData = window.electron.ipcRenderer.ipcSendSync(
+        'getAssetsTrend',
+        { startDate: startDate.getTime(), endDate },
+      );
+      setAssetsTrend(trendData);
+    } catch (error) {
+      Toast.error('获取资产趋势数据失败');
+      console.error(error);
+    }
+  };
+
+  // 获取资产分布数据
+  const getAssetsDistribution = () => {
+    try {
+      const records =
+        window.electron.ipcRenderer.ipcSendSync('getAssetsRecordAll');
+
+      // 按类型分组并计算总额
+      const distribution = records.reduce((acc, record) => {
+        if (!acc[record.type]) {
+          acc[record.type] = 0;
+        }
+        acc[record.type] += record.amount;
+        return acc;
+      }, {});
+
+      // 转换为饼图所需的数据格式
+      const pieData = Object.entries(distribution).map(([type, value]) => ({
+        name: type,
+        value,
+      }));
+
+      setAssetsDistribution(pieData);
+    } catch (error) {
+      Toast.error('获取资产分布数据失败');
+      console.error(error);
+    }
+  };
 
   useEffect(() => {
     baiduAnalytics();
+    // 获取资产总额
+    getAssetsSummary();
+    // 获取上月账单汇总
+    getLastMonthBillSummary();
+    // 获取资产趋势数据
+    getAssetsTrend();
+    // 获取资产分布数据
+    getAssetsDistribution();
   }, []);
 
-  const summaryColumns = [
-    {
-      title: '时间',
-      dataIndex: 'period',
-      width: 120,
-      sorter: (a, b) => a.period.localeCompare(b.period),
-    },
-    {
-      title: '总本金',
-      dataIndex: 'total_money',
-      width: 150,
-      sorter: (a, b) => a.total_money - b.total_money,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-    {
-      title: '总收益',
-      dataIndex: 'earnings',
-      width: 150,
-      sorter: (a, b) => a.earnings - b.earnings,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-    {
-      title: '综合年化率',
-      dataIndex: 'rate',
-      width: 120,
-      sorter: (a, b) => a.rate - b.rate,
-      render: (text) => `${Number(text).toFixed(2)}%`,
-    },
-    {
-      title: '家庭账户汇预期总金额',
-      dataIndex: 'expected_total',
-      width: 180,
-      sorter: (a, b) => a.expected_total - b.expected_total,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-    {
-      title: '家庭账户汇真实总金额',
-      dataIndex: 'actual_total',
-      width: 180,
-      sorter: (a, b) => a.actual_total - b.actual_total,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-  ];
+  const formatNumber = (num) => {
+    return new Intl.NumberFormat('zh-CN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(num);
+  };
 
-  const detailColumns = [
-    {
-      title: '时间',
-      dataIndex: 'period',
-      width: 120,
-      sorter: (a, b) => a.period.localeCompare(b.period),
-    },
-    {
-      title: '产品名称',
-      dataIndex: 'name',
-      width: 200,
-      sorter: (a, b) => a.name.localeCompare(b.name),
-    },
-    {
-      title: '本金',
-      dataIndex: 'total_money',
-      width: 150,
-      sorter: (a, b) => a.total_money - b.total_money,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-    {
-      title: '收益',
-      dataIndex: 'earnings',
-      width: 150,
-      sorter: (a, b) => a.earnings - b.earnings,
-      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
-    },
-    {
-      title: '年化收益率',
-      dataIndex: 'rate',
-      width: 120,
-      sorter: (a, b) => a.rate - b.rate,
-      render: (text) => `${Number(text).toFixed(2)}%`,
-    },
-  ];
+  // 资产趋势图配置
+  const getTrendOption = () => {
+    const data = assetsTrend.sort((a, b) => a.date - b.date);
 
-  // 添加一个正序排序的数据源，专门用于图表
-  const chartSortedData = useMemo(() => {
-    return [...summaryData].sort((a, b) => a.period.localeCompare(b.period));
-  }, [summaryData]);
-
-  const chartSortedDetailData = useMemo(() => {
-    return [...detailData].sort((a, b) => a.period.localeCompare(b.period));
-  }, [detailData]);
-
-  // 表格保持倒序
-  const sortedSummaryData = useMemo(() => {
-    return [...summaryData].sort((a, b) => b.period.localeCompare(a.period));
-  }, [summaryData]);
-
-  const sortedDetailData = useMemo(() => {
-    return [...detailData].sort((a, b) => b.period.localeCompare(a.period));
-  }, [detailData]);
-
-  // 分别创建两个图表的配置
-  const earningsChartOptions = useMemo(() => {
-    const periods = chartSortedData.map((item) => item.period);
-
-    // 按产品分组处理数据
-    const productEarnings = {};
-    const productNames = new Set();
-    const productTotalEarnings = new Map(); // 用于存储每个产品的总收益
-
-    // 第一步：收集数据和计算每个产品的总收益
-    chartSortedDetailData.forEach((item) => {
-      if (!productEarnings[item.period]) {
-        productEarnings[item.period] = {};
-      }
-      productEarnings[item.period][item.name] = Number(
-        item.earnings.toFixed(2),
-      );
-      productNames.add(item.name);
-
-      // 累计每个产品的总收益
-      const currentTotal = productTotalEarnings.get(item.name) || 0;
-      productTotalEarnings.set(
-        item.name,
-        currentTotal + Number(item.earnings.toFixed(2)),
-      );
-    });
-
-    // 按总收益排序产品名称
-    const sortedProductNames = Array.from(productNames).sort((a, b) => {
-      const totalA = productTotalEarnings.get(a) || 0;
-      const totalB = productTotalEarnings.get(b) || 0;
-      return totalB - totalA; // 从大到小排序，这样收益大的会在底部
-    });
-
-    // 转换为图表数据
-    const seriesData = sortedProductNames.map((name) => ({
-      name,
-      type: 'bar',
-      stack: 'earnings',
-      data: periods.map((period) => productEarnings[period]?.[name] || 0),
-      label: {
-        show: true,
-        position: 'inside',
-      },
-    }));
+    // 计算时间范围
+    const endDate = new Date().getTime();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 11);
+    startDate.setDate(1);
+    startDate.setHours(0, 0, 0, 0);
 
     return {
-      title: {
-        text: '收益趋势',
-        left: 'center',
-      },
       tooltip: {
         trigger: 'axis',
-        axisPointer: {
-          type: 'cross',
+        formatter: (params) => {
+          const date = new Date(params[0].value[0]);
+          return `${date.getFullYear()}年${date.getMonth() + 1}月<br/>
+                  资产总额: ￥${formatNumber(params[0].value[1])}`;
         },
-      },
-      legend: {
-        bottom: 0,
-      },
-      grid: {
-        left: '10%',
-        right: '10%',
-        bottom: '15%',
-        top: '15%',
-        containLabel: true,
       },
       xAxis: {
-        type: 'category',
-        data: periods,
+        type: 'time',
         axisLabel: {
-          rotate: 30,
-        },
-      },
-      yAxis: {
-        type: 'value',
-        name: '收益(元)',
-        axisLabel: {
-          formatter: (value) => value.toLocaleString('zh-CN'),
-        },
-      },
-      series: [
-        ...seriesData,
-        {
-          name: '总收益',
-          type: 'line',
-          data: periods.map((period) => {
-            const total = seriesData.reduce(
-              (sum, series) =>
-                sum + (series.data[periods.indexOf(period)] || 0),
-              0,
-            );
-            return Number(total.toFixed(2));
-          }),
-          label: {
-            show: true,
-            position: 'top',
-            formatter: (params) => `${params.value.toLocaleString('zh-CN')} 元`,
+          formatter: (value) => {
+            const date = new Date(value);
+            return `${date.getMonth() + 1}月`;
           },
         },
-      ],
-    };
-  }, [chartSortedData, chartSortedDetailData]);
-
-  const rateChartOptions = useMemo(() => {
-    const periods = chartSortedData.map((item) => item.period);
-    const rates = chartSortedData.map((item) => Number(item.rate.toFixed(2)));
-
-    return {
-      title: {
-        text: '年化率趋势',
-        left: 'center',
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: {
-          type: 'cross',
-        },
-      },
-      grid: {
-        left: '10%',
-        right: '10%',
-        bottom: '15%',
-        top: '15%',
-      },
-      xAxis: {
-        type: 'category',
-        data: periods,
-        axisLabel: {
-          rotate: 30,
-        },
+        min: startDate.getTime(),
+        max: endDate,
       },
       yAxis: {
         type: 'value',
-        name: '年化率(%)',
-        position: 'left',
         axisLabel: {
-          formatter: '{value}%',
+          formatter: (value) => `￥${formatNumber(value)}`,
         },
       },
       series: [
         {
-          name: '综合年化率',
+          data: data.map((item) => [item.date, item.amount]),
           type: 'line',
-          data: rates,
-          symbol: 'circle',
+          smooth: true,
           symbolSize: 8,
           lineStyle: {
             width: 2,
           },
-          itemStyle: {
-            color: '#91CC75',
-          },
-          label: {
-            show: true,
-            position: 'top',
-            formatter: (params) => `${params.value}%`,
-            color: '#91CC75',
-          },
         },
       ],
     };
-  }, [chartSortedData]);
+  };
+
+  // 资产分布饼图配置
+  const getDistributionOption = () => ({
+    tooltip: {
+      trigger: 'item',
+      formatter: (params) => {
+        return `${params.name}<br/>
+                金额: ${formatNumber(params.value)}<br/>
+                占比: ${params.percent}%`;
+      },
+    },
+    legend: {
+      orient: 'vertical',
+      left: 'left',
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: '50%',
+        data: assetsDistribution,
+        label: {
+          show: true,
+          formatter: (params) => {
+            return [
+              `${params.name}`,
+              `￥${formatNumber(params.value)}`,
+              `${params.percent}%`,
+            ].join('\n');
+          },
+        },
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)',
+          },
+        },
+      },
+    ],
+  });
 
   return (
     <div
@@ -338,12 +217,24 @@ function Dashboard() {
         minHeight: 0,
       }}
     >
-      <Breadcrumb
+      <div
         style={{
+          display: 'flex',
+          gap: '16px',
           marginBottom: '24px',
+          borderRadius: '10px',
+          border: '1px solid var(--semi-color-border)',
         }}
-        routes={['首页']}
-      />
+      >
+        <MetricCard title="家庭总资产" value={formatNumber(totalAssets)} />
+        <MetricCard
+          title="上月账单汇总"
+          value={formatNumber(lastMonthBill)}
+          tooltip={`${new Date().getFullYear()}年${new Date().getMonth()}月账单总额`}
+        />
+        <MetricCard title="上月收益汇总" value="*****" />
+        <MetricCard title="年度收益汇总" value="*****" />
+      </div>
       <div
         style={{
           borderRadius: '10px',
@@ -354,82 +245,22 @@ function Dashboard() {
           minHeight: 0,
         }}
       >
-        <Space
-          vertical
-          align="start"
-          spacing="medium"
-          style={{ width: '100%' }}
-        >
-          <Space>
-            <Text>时间范围：</Text>
-            <DatePicker
-              type="dateRange"
-              value={[dateRange.start, dateRange.end]}
-              onChange={(val) => {
-                if (val) {
-                  setDateRange({
-                    start: val[0],
-                    end: val[1],
-                  });
-                }
-              }}
-              style={{ width: 260 }}
+        <div style={{ display: 'flex', gap: '24px', height: '400px' }}>
+          <div style={{ flex: 1, height: '100%' }}>
+            <h3 style={{ marginBottom: '16px' }}>资产趋势</h3>
+            <ReactECharts
+              option={getTrendOption()}
+              style={{ height: '100%' }}
             />
-            <Text>统计维度：</Text>
-            <Select
-              value={dimension}
-              onChange={setDimension}
-              style={{ width: 120 }}
-            >
-              <Select.Option value="month">月</Select.Option>
-              <Select.Option value="week">周</Select.Option>
-              <Select.Option value="year">年</Select.Option>
-            </Select>
-          </Space>
-
-          {loading ? (
-            <Spin tip="加载中..." size="large" />
-          ) : (
-            <>
-              <Card title="收益趋势分析" style={{ width: '100%' }}>
-                <div style={{ display: 'flex', gap: '20px' }}>
-                  <div style={{ flex: 1 }}>
-                    <ReactECharts
-                      option={earningsChartOptions}
-                      style={{ height: '400px' }}
-                      opts={{ renderer: 'svg' }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <ReactECharts
-                      option={rateChartOptions}
-                      style={{ height: '400px' }}
-                      opts={{ renderer: 'svg' }}
-                    />
-                  </div>
-                </div>
-              </Card>
-
-              <Card title="收益汇总" style={{ width: '100%' }}>
-                <Table
-                  columns={summaryColumns}
-                  dataSource={sortedSummaryData}
-                  pagination={false}
-                  bordered
-                />
-              </Card>
-
-              <Card title="收益明细" style={{ width: '100%' }}>
-                <Table
-                  columns={detailColumns}
-                  dataSource={sortedDetailData}
-                  pagination={false}
-                  bordered
-                />
-              </Card>
-            </>
-          )}
-        </Space>
+          </div>
+          <div style={{ flex: 1, height: '100%' }}>
+            <h3 style={{ marginBottom: '16px' }}>资产分布</h3>
+            <ReactECharts
+              option={getDistributionOption()}
+              style={{ height: '100%' }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
