@@ -720,6 +720,49 @@ class API {
     }
   }
 
+  // 在 API 类中添加风险等级转换函数
+  private convertRiskLevel(risk: string, bank: string): string {
+    if (!risk) return '';
+
+    // 交通银行
+    if (bank === 'COMM') {
+      const riskMap = {
+        '1R': 'R1',
+        '2R': 'R2',
+        '3R': 'R3',
+        '4R': 'R4',
+        '5R': 'R5',
+      };
+      return riskMap[risk] || risk;
+    }
+
+    // 招商银行
+    if (bank === 'CMB') {
+      const riskMap = {
+        低风险: 'R1',
+        中低风险: 'R2',
+        中等风险: 'R3',
+        中高风险: 'R4',
+        高风险: 'R5',
+      };
+      return riskMap[risk] || risk;
+    }
+
+    // 农业银行
+    if (bank === 'ABC') {
+      const riskMap = {
+        低: 'R1',
+        中低: 'R2',
+        中: 'R3',
+        中高: 'R4',
+        高: 'R5',
+      };
+      return riskMap[risk] || risk;
+    }
+
+    return risk;
+  }
+
   // 获取交通银行数据
   private async fetchCommData() {
     try {
@@ -751,15 +794,27 @@ class API {
         return [];
       }
 
-      return data.RSP_BODY.fundInfoList.map((item) => ({
-        fundname: item.fundname || '',
-        fundcode: item.fundcode || '',
-        fundlevel: item.fundlevel || '',
-        investday: item.investday || '',
-        registername: item.registername || '',
-        displayrate: item.displayrate || '',
-        investdaydesc: item.investdaydesc || '',
-      }));
+      const temp = data.RSP_BODY.fundInfoList[0];
+      console.log(temp);
+
+      data.RSP_BODY.fundInfoList.forEach((item) => {
+        if (item.fundcode === '5811224209') {
+          console.log(item);
+        }
+      });
+
+      return data.RSP_BODY.fundInfoList
+        .filter((item) => Number(item.investtime) > 0)
+        .map((item) => ({
+          fundname: item.fundname || '',
+          fundcode: item.fundcode || '',
+          fundlevel: this.convertRiskLevel(item.fundlevel, 'COMM'),
+          investday: item.investday || '',
+          registername: item.registername || '',
+          displayrate: item.displayrate || '',
+          investdaydesc: item.investdaydesc || '',
+          currenttype: item.currenttype || '',
+        }));
     } catch (error) {
       console.error('获取交通银行数据失败:', error);
       return [];
@@ -804,7 +859,7 @@ class API {
       return data.list.map((item) => ({
         fundname: item.PrdName || '',
         fundcode: item.PrdCode || '',
-        fundlevel: item.Risk || '',
+        fundlevel: this.convertRiskLevel(item.Risk, 'CMB'),
         registername: item.PrdBrief || '',
         displayrate: item.ShowExpectedReturn || '',
         investdaydesc: item.Term || '',
@@ -879,7 +934,7 @@ class API {
       return allProducts.map((item) => ({
         fundname: item.ProdName || '',
         fundcode: item.ProductNo || '',
-        fundlevel: item.ProdYildType || '',
+        fundlevel: this.convertRiskLevel(item.ProdYildType, 'ABC'),
         investday: item.ProdLimit || '',
         registername: item.issuingOffice || '',
         displayrate: item.ProdProfit || '',

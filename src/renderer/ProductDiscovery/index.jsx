@@ -240,11 +240,12 @@ function ProductDiscovery() {
               onChange={(value) => handleFilterChange('risk', value)}
               disabled={!initialized || loading || fullScreenLoading}
             >
-              <Select.Option value="1">低风险</Select.Option>
-              <Select.Option value="2">中低风险</Select.Option>
-              <Select.Option value="3">中等风险</Select.Option>
-              <Select.Option value="4">中高风险</Select.Option>
-              <Select.Option value="5">高风险</Select.Option>
+              <Select.Option value="">所有风险等级</Select.Option>
+              <Select.Option value="R1">低风险(R1)</Select.Option>
+              <Select.Option value="R2">中低风险(R2)</Select.Option>
+              <Select.Option value="R3">中等风险(R3)</Select.Option>
+              <Select.Option value="R4">中高风险(R4)</Select.Option>
+              <Select.Option value="R5">高风险(R5)</Select.Option>
             </Select>
           </Col>
           <Col>
