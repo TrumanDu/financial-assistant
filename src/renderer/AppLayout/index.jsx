@@ -50,26 +50,26 @@ function AppLayout() {
                 setSelectKey(['/record_assets']);
               },
             },
-            {
-              itemKey: '/investment_record',
-              text: '理财收益记录',
-              icon: <IconCalendar size="large" style={{ color: '#FF9800' }} />,
-              onClick: () => {
-                navigate('/investment_record');
-                setSelectKey(['/investment_record']);
-              },
-            },
-            {
-              itemKey: '/investment',
-              text: '理财产品目录',
-              icon: (
-                <IconShoppingBag size="large" style={{ color: '#9E9E9E' }} />
-              ),
-              onClick: () => {
-                navigate('/investment');
-                setSelectKey(['/investment']);
-              },
-            },
+            // {
+            //   itemKey: '/investment_record',
+            //   text: '理财收益记录',
+            //   icon: <IconCalendar size="large" style={{ color: '#FF9800' }} />,
+            //   onClick: () => {
+            //     navigate('/investment_record');
+            //     setSelectKey(['/investment_record']);
+            //   },
+            // },
+            // {
+            //   itemKey: '/investment',
+            //   text: '理财产品目录',
+            //   icon: (
+            //     <IconShoppingBag size="large" style={{ color: '#9E9E9E' }} />
+            //   ),
+            //   onClick: () => {
+            //     navigate('/investment');
+            //     setSelectKey(['/investment']);
+            //   },
+            // },
             {
               itemKey: '/bill_record',
               text: '账单记录',

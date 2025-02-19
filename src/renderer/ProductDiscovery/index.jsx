@@ -17,6 +17,7 @@ import * as dateFns from 'date-fns';
 function ProductDiscovery() {
   const [loading, setLoading] = useState(false);
   const [dataSource, setDataSource] = useState([]);
+  const [sortOrder, setSortOrder] = useState('descend');
   const [initialized, setInitialized] = useState(false);
   const [fullScreenLoading, setFullScreenLoading] = useState(false);
   const [filters, setFilters] = useState({
@@ -30,6 +31,15 @@ function ProductDiscovery() {
     risk: '',
     isNew: '',
   });
+
+  const handleTableChange = (data) => {
+    const nextSortOrder = data.sorter.sortOrder;
+    if (nextSortOrder !== sortOrder) {
+      // 你在这里可以随便按你自己想要的顺序去控制怎么切换
+      console.log(`from ${sortOrder} to ${nextSortOrder}`);
+      setSortOrder(sortOrder === 'descend' ? 'ascend' : 'descend');
+    }
+  };
 
   // 获取所有银行数据
   const fetchAllBankData = async (isRefresh = false) => {
@@ -97,11 +107,43 @@ function ProductDiscovery() {
     });
   };
 
+  // 添加银行代码到中文名称的映射
+  const bankNameMap = {
+    COMM: '交通银行',
+    CMB: '招商银行',
+    ABC: '农业银行',
+  };
+
+  const parseRate = (rate) => {
+    // 如果rate为空或者包含中文字符，返回-Infinity使其排在最后
+    if (!rate || /[\u4e00-\u9fa5]/.test(rate)) {
+      return -Infinity;
+    }
+    // 提取数字部分，去除百分号等字符
+    const number = parseFloat(rate.replace(/[^0-9.-]/g, ''));
+    return isNaN(number) ? -Infinity : number;
+  };
+
   const columns = [
-    { title: '银行', dataIndex: 'bank', width: 100 },
+    {
+      title: '银行',
+      dataIndex: 'bank',
+      width: 100,
+      render: (text) => bankNameMap[text] || text,
+    },
     { title: '产品名称', dataIndex: 'fundname', width: 200 },
     { title: '产品代码', dataIndex: 'fundcode', width: 120 },
-    { title: '收益率', dataIndex: 'displayrate', width: 100 },
+    {
+      title: '收益率',
+      dataIndex: 'displayrate',
+      width: 100,
+      sorter: (a, b) => {
+        const rateA = parseRate(a.displayrate);
+        const rateB = parseRate(b.displayrate);
+        return rateA - rateB; // 默认降序
+      },
+      sortOrder,
+    },
     { title: '投资期限', dataIndex: 'investdaydesc', width: 120 },
     { title: '风险等级', dataIndex: 'fundlevel', width: 100 },
     { title: '发行机构', dataIndex: 'registername', width: 150 },
@@ -222,6 +264,7 @@ function ProductDiscovery() {
         >
           <Table
             columns={columns}
+            onChange={(data) => handleTableChange(data)}
             dataSource={getFilteredData()}
             pagination={{
               pageSize: 10,
