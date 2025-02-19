@@ -1,3 +1,5 @@
+/* eslint-disable no-plusplus */
+/* eslint-disable no-await-in-loop */
 /* eslint-disable promise/always-return */
 /* eslint-disable camelcase */
 /* eslint-disable no-console */
@@ -47,73 +49,6 @@ class API {
   public saveSettingByKey(arg: any) {
     const { data } = arg;
     this.setting.updateByKey(data.key, data.value);
-  }
-
-  // 获取所有存款记录
-  public async getSavingsRecordAll() {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        'SELECT * FROM savings_record ORDER BY created_at DESC',
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows);
-        },
-      );
-    });
-  }
-
-  // 添加存款记录
-  public async addSavingsRecord(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { name, owner, money, rate, start_date, end_date } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        INSERT INTO savings_record (name, owner, money, rate, start_date, end_date)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      stmt.run([name, owner, money, rate, start_date, end_date], (err) => {
-        if (err) reject(err);
-        resolve(record);
-      });
-    });
-  }
-
-  // 更新存款记录
-  public async editSavingsRecord(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { name, owner, money, rate, start_date, end_date, id } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        UPDATE savings_record
-        SET name = ?, owner = ?, money = ?, rate = ?,
-            start_date = ?, end_date = ?, updated_at = ?
-        WHERE id = ?
-      `);
-
-      const now = Date.now();
-      stmt.run(
-        [name, owner, money, rate, start_date, end_date, now, id],
-        (err) => {
-          if (err) reject(err);
-          resolve({ ...record, updated_at: now });
-        },
-      );
-    });
-  }
-
-  // 删除存款记录
-  public async deleteSavingsRecord(arg: any) {
-    const { data } = arg;
-    const { id } = data;
-    return new Promise((resolve, reject) => {
-      this.db.run('DELETE FROM savings_record WHERE id = ?', [id], (err) => {
-        if (err) reject(err);
-        resolve({ success: true });
-      });
-    });
   }
 
   // 获取所有理财产品
@@ -262,62 +197,6 @@ class API {
     });
   }
 
-  private generateTimePeriods(
-    startDate: number,
-    endDate: number,
-    dimension: string,
-  ): { start: number; end: number; period: string }[] {
-    const periods: { start: number; end: number; period: string }[] = [];
-    const now = Date.now();
-    const effectiveEndDate = Math.min(endDate, now);
-
-    let currentDate = new Date(startDate);
-    const endDateTime = new Date(effectiveEndDate);
-
-    while (currentDate < endDateTime) {
-      let nextDate = new Date(currentDate);
-      let period: string;
-
-      switch (dimension) {
-        case 'year':
-          period = currentDate.getFullYear().toString();
-          nextDate.setFullYear(currentDate.getFullYear() + 1);
-          break;
-        case 'month':
-          period = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-          nextDate.setMonth(currentDate.getMonth() + 1);
-          break;
-        case 'week':
-          const monday = new Date(currentDate);
-          const dayOfWeek = monday.getDay() || 7;
-          monday.setDate(monday.getDate() - dayOfWeek + 1);
-
-          nextDate = new Date(monday);
-          nextDate.setDate(monday.getDate() + 7);
-
-          const firstDayOfYear = new Date(monday.getFullYear(), 0, 1);
-          const weekNum = Math.ceil(
-            ((monday.getTime() - firstDayOfYear.getTime()) / 86400000 + 1) / 7,
-          );
-
-          period = `${monday.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
-          break;
-        default:
-          throw new Error(`Unsupported dimension: ${dimension}`);
-      }
-
-      periods.push({
-        start: currentDate.getTime(),
-        end: Math.min(nextDate.getTime(), effectiveEndDate),
-        period,
-      });
-
-      currentDate = nextDate;
-    }
-
-    return periods;
-  }
-
   public async getSavingsEarnings(
     startDate: number,
     endDate: number,
@@ -407,332 +286,6 @@ class API {
       if (periodCompare !== 0) return periodCompare;
       return a.owner.localeCompare(b.owner);
     });
-  }
-
-  // 获取理财收益统计
-  public async getInvestmentEarnings(
-    startDate: number,
-    endDate: number,
-    dimension: string,
-  ) {
-    const periods = this.generateTimePeriods(startDate, endDate, dimension);
-
-    // 一次性查询所有数据
-    const allRecords = await new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT
-          i.owner,
-          ir.investment_id,
-          ir.money,
-          ir.in_date,
-          LAG(ir.money) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_money,
-          LAG(ir.in_date) OVER (PARTITION BY ir.investment_id ORDER BY ir.in_date) as prev_date
-        FROM investment_record ir
-        JOIN investment i ON ir.investment_id = i.id
-        WHERE ir.in_date <= ?
-        ORDER BY ir.investment_id, ir.in_date`,
-        [Math.max(...periods.map((p) => p.end))],
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows || []);
-        },
-      );
-    });
-
-    // 在内存中处理每个时间段的统计
-    const results = periods
-      .flatMap((period) => {
-        const ownerStats = new Map<
-          string,
-          {
-            total_money: number;
-            earnings: number;
-          }
-        >();
-
-        (allRecords as any[]).forEach((record) => {
-          if (record.in_date <= period.end) {
-            const { owner } = record;
-            if (!ownerStats.has(owner)) {
-              ownerStats.set(owner, {
-                total_money: 0,
-                earnings: 0,
-              });
-            }
-
-            const stats = ownerStats.get(owner)!;
-
-            // 计算当前期间的收益
-            if (record.prev_date !== null) {
-              const moneyDiff = record.money - record.prev_money;
-
-              // 计算在当前期间内的时间占比
-              const periodStart = period.start;
-              const periodEnd = period.end;
-              const recordStart = Math.max(record.prev_date, periodStart);
-              const recordEnd = Math.min(record.in_date, periodEnd);
-
-              if (recordEnd > recordStart) {
-                // 计算时间占比
-                const totalDuration = record.in_date - record.prev_date;
-                const effectiveDuration = recordEnd - recordStart;
-
-                // 按时间比例计算收益
-                const periodEarnings =
-                  moneyDiff * (effectiveDuration / totalDuration);
-                stats.earnings += periodEarnings;
-              }
-            }
-
-            // 更新总金额（使用期间结束时的金额）
-            if (record.in_date <= period.end) {
-              stats.total_money = record.money;
-            }
-          }
-        });
-
-        // 只返回有数据的期间
-        if (ownerStats.size === 0) {
-          return [];
-        }
-
-        return Array.from(ownerStats.entries()).map(([owner, stats]) => {
-          // 计算年化收益率
-          const rate =
-            stats.total_money > 0
-              ? (stats.earnings * 365 * 100) /
-                (stats.total_money *
-                  ((period.end - period.start) / (24 * 60 * 60 * 1000)))
-              : 0;
-
-          return {
-            period: period.period,
-            owner,
-            total_money: stats.total_money,
-            earnings: stats.earnings,
-            rate,
-          };
-        });
-      })
-      // 过滤掉没有数据的期间
-      .filter((result) => result.total_money > 0);
-
-    // 按期间和所有者排序
-    return results.sort((a, b) => {
-      const periodCompare = a.period.localeCompare(b.period);
-      if (periodCompare !== 0) return periodCompare;
-      return a.owner.localeCompare(b.owner);
-    });
-  }
-
-  // 获取财务汇总报表
-  public async getFinancialSummary(arg: any) {
-    const { data } = arg;
-    const { startDate, endDate, dimension } = data;
-
-    try {
-      // 获取存款和理财的原始数据
-      const [savingsData, investmentData] = await Promise.all([
-        // 存款查询
-        new Promise((resolve, reject) => {
-          this.db.all(
-            `SELECT
-              name,
-              SUM(money) as total_money,
-              rate,
-              start_date,
-              end_date
-            FROM savings_record
-            WHERE start_date < ? AND end_date > ?
-            GROUP BY name, rate`,
-            [endDate, startDate],
-            (err, rows) => {
-              if (err) reject(err);
-              resolve(rows || []);
-            },
-          );
-        }),
-        // 理财查询
-        new Promise((resolve, reject) => {
-          this.db.all(
-            `SELECT
-              i.name,
-              ir.money,
-              ir.in_date,
-              LAG(ir.money) OVER (PARTITION BY i.id ORDER BY ir.in_date) as prev_money,
-              LAG(ir.in_date) OVER (PARTITION BY i.id ORDER BY ir.in_date) as prev_date
-            FROM investment_record ir
-            JOIN investment i ON ir.investment_id = i.id
-            WHERE ir.in_date <= ?
-            ORDER BY i.id, ir.in_date`,
-            [endDate],
-            (err, rows) => {
-              if (err) reject(err);
-              resolve(rows || []);
-            },
-          );
-        }),
-      ]);
-
-      const periods = this.generateTimePeriods(startDate, endDate, dimension);
-      const summary = new Map();
-      const detail = new Map();
-
-      // 处理每个时间段
-      periods.forEach((period) => {
-        // 计算存款收益
-        savingsData.forEach((record: any) => {
-          if (
-            record.start_date < period.end &&
-            record.end_date > period.start
-          ) {
-            const effectiveStartDate = Math.max(
-              record.start_date,
-              period.start,
-            );
-            const effectiveEndDate = Math.min(record.end_date, period.end);
-            const daysInPeriod =
-              (effectiveEndDate - effectiveStartDate) / (24 * 60 * 60 * 1000);
-
-            const earnings =
-              (record.total_money * record.rate * daysInPeriod) / (365 * 100);
-
-            // 明细数据
-            const detailKey = `${period.period}-存款-${record.name}(${record.rate}%)`;
-            const detailItem = detail.get(detailKey) || {
-              period: period.period,
-              name: `存款-${record.name}(${record.rate}%)`,
-              total_money: 0,
-              earnings: 0,
-              rate: record.rate,
-            };
-            detailItem.total_money += record.total_money;
-            detailItem.earnings += earnings;
-            detail.set(detailKey, detailItem);
-
-            // 汇总数据
-            const summaryKey = period.period;
-            const summaryItem = summary.get(summaryKey) || {
-              period: period.period,
-              total_money: 0,
-              earnings: 0,
-              expected_total: 0,
-              actual_total: 0,
-            };
-            summaryItem.total_money += record.total_money;
-            summaryItem.earnings += earnings;
-            summaryItem.expected_total += record.total_money + earnings;
-
-            // 如果查询时间大于等于存款结束时间，则计入真实总金额
-            if (period.end >= record.end_date) {
-              summaryItem.actual_total += record.total_money + earnings;
-            } else {
-              summaryItem.actual_total += record.total_money; // 只计入本金
-            }
-
-            summary.set(summaryKey, summaryItem);
-          }
-        });
-
-        // 计算理财收益
-        const productStats = new Map();
-        investmentData.forEach((record: any) => {
-          if (record.in_date <= period.end && record.prev_date) {
-            const recordStart = Math.max(record.prev_date, period.start);
-            const recordEnd = Math.min(record.in_date, period.end);
-
-            if (recordEnd > recordStart) {
-              const totalDuration = record.in_date - record.prev_date;
-              const moneyDiff = record.money - record.prev_money;
-
-              const stats = productStats.get(record.name) || {
-                earliestMoney: record.prev_money,
-                earliestDate: record.prev_date,
-                latestMoney: record.money,
-                latestDate: record.in_date,
-              };
-
-              // 更新最早和最晚记录
-              if (record.prev_date < stats.earliestDate) {
-                stats.earliestMoney = record.prev_money;
-                stats.earliestDate = record.prev_date;
-              }
-              if (record.in_date > stats.latestDate) {
-                stats.latestMoney = record.money;
-                stats.latestDate = record.in_date;
-              }
-
-              productStats.set(record.name, stats);
-            }
-          }
-        });
-
-        // 合并理财数据
-        productStats.forEach((stats, name) => {
-          // 计算收益金额和年化收益率
-          const earnings = stats.latestMoney - stats.earliestMoney;
-          const duration =
-            (stats.latestDate - stats.earliestDate) / (24 * 60 * 60 * 1000);
-          const rate =
-            earnings > 0 && duration > 0
-              ? (earnings * 365 * 100) / (stats.earliestMoney * duration)
-              : 0;
-
-          // 明细数据
-          const detailKey = `${period.period}-理财-${name}`;
-          const detailItem = detail.get(detailKey) || {
-            period: period.period,
-            name: `理财-${name}`,
-            total_money: 0,
-            earnings: 0,
-            rate: 0,
-          };
-          detailItem.total_money += stats.earliestMoney;
-          detailItem.earnings += earnings;
-          detailItem.rate = rate;
-          detail.set(detailKey, detailItem);
-
-          // 汇总数据
-          const summaryKey = period.period;
-          const summaryItem = summary.get(summaryKey) || {
-            period: period.period,
-            total_money: 0,
-            earnings: 0,
-            expected_total: 0,
-            actual_total: 0,
-          };
-          summaryItem.total_money += stats.earliestMoney;
-          summaryItem.earnings += earnings;
-          summaryItem.expected_total += stats.earliestMoney + earnings;
-          summaryItem.actual_total += stats.earliestMoney + earnings;
-          summary.set(summaryKey, summaryItem);
-        });
-      });
-
-      // 处理汇总数据的年化率
-      const summaryResult = Array.from(summary.values()).map((item) => ({
-        ...item,
-        rate:
-          item.total_money > 0
-            ? (item.earnings * 365 * 100) /
-              (item.total_money *
-                ((endDate - startDate) / (24 * 60 * 60 * 1000)))
-            : 0,
-      }));
-
-      // 返回汇总和明细数据
-      return {
-        summary: summaryResult.sort((a, b) => a.period.localeCompare(b.period)),
-        detail: Array.from(detail.values()).sort((a, b) => {
-          const periodCompare = a.period.localeCompare(b.period);
-          if (periodCompare !== 0) return periodCompare;
-          return a.name.localeCompare(b.name);
-        }),
-      };
-    } catch (error) {
-      console.error('获取财务汇总失败:', error);
-      throw error;
-    }
   }
 
   // 获取所有资产记录
@@ -1134,6 +687,208 @@ class API {
         },
       );
     });
+  }
+
+  // 获取银行理财产品历史数据
+  public async getBankDataHistory() {
+    try {
+      // 并行获取所有银行数据
+      const [commData, cmbData, abcData] = await Promise.all([
+        this.fetchCommData(),
+        this.fetchCmbData(),
+        this.fetchAbcData(),
+      ]);
+
+      // 合并数据
+      const allData = [
+        ...commData.map((item) => ({ ...item, bank: 'COMM' })),
+        ...cmbData.map((item) => ({ ...item, bank: 'CMB' })),
+        ...abcData.map((item) => ({ ...item, bank: 'ABC' })),
+      ];
+
+      return {
+        code: 200,
+        message: '获取数据成功',
+        data: allData,
+      };
+    } catch (error) {
+      return {
+        code: 500,
+        message: error.message,
+        data: [],
+      };
+    }
+  }
+
+  // 获取交通银行数据
+  private async fetchCommData() {
+    try {
+      const response = await fetch(
+        'https://www.bankcomm.com/SITE/queryFundInfoListNew.do',
+        {
+          method: 'POST',
+          headers: {
+            Accept: '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            Connection: 'keep-alive',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Origin: 'https://www.bankcomm.com',
+            Referer:
+              'https://www.bankcomm.com/BankCommSite/shtml/jyjr/cn/7226/7266/7281/7282/list.shtml?channelId=7226',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          body: 'channelId=7226',
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.RSP_BODY?.fundInfoList) {
+        return [];
+      }
+
+      return data.RSP_BODY.fundInfoList.map((item) => ({
+        fundname: item.fundname || '',
+        fundcode: item.fundcode || '',
+        fundlevel: item.fundlevel || '',
+        investday: item.investday || '',
+        registername: item.registername || '',
+        displayrate: item.displayrate || '',
+        investdaydesc: item.investdaydesc || '',
+      }));
+    } catch (error) {
+      console.error('获取交通银行数据失败:', error);
+      return [];
+    }
+  }
+
+  // 获取招商银行数据
+  private async fetchCmbData() {
+    try {
+      const response = await fetch(
+        'https://www.cmbchina.com/cfweb/svrajax/product.ashx?op=search&type=m&pageindex=1&salestatus=&baoben=&currency=&term=&keyword=&series=01&risk=&city=&date=&pagesize=10000&orderby=ord1',
+        {
+          method: 'GET',
+          headers: {
+            Accept: '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            Connection: 'keep-alive',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Referer: 'https://www.cmbchina.com/',
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      let text = await response.text();
+      text = text
+        .slice(1, -1)
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+
+      const data = JSON.parse(text);
+      if (!Array.isArray(data.list)) {
+        return [];
+      }
+
+      return data.list.map((item) => ({
+        fundname: item.PrdName || '',
+        fundcode: item.PrdCode || '',
+        fundlevel: item.Risk || '',
+        registername: item.PrdBrief || '',
+        displayrate: item.ShowExpectedReturn || '',
+        investdaydesc: item.Term || '',
+      }));
+    } catch (error) {
+      console.error('获取招商银行数据失败:', error);
+      return [];
+    }
+  }
+
+  // 获取农业银行数据
+  private async fetchAbcData() {
+    try {
+      const response = await fetch(
+        'https://ewealth.abchina.com.cn/app/data/api/DataService/BoeProductV2?i=1&s=50&o=0&w=%25E5%258F%25AF%25E5%2594%25AE%257C%257C%257C%257C%257C%257C%257C1%257C%257C0%257C%257C0',
+        {
+          method: 'GET',
+          headers: {
+            Accept: '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            Connection: 'keep-alive',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Referer: 'https://ewealth.abchina.com.cn/',
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.Data?.Table) {
+        return [];
+      }
+
+      // 获取总页数
+      const total = data.Data.Table1?.[0]?.total || 0;
+      const totalPages = Math.ceil(total / 50);
+
+      // 获取所有页的数据
+      const allProducts = [...data.Data.Table];
+
+      // 获取剩余页的数据
+      for (let page = 2; page <= totalPages; page++) {
+        const pageResponse = await fetch(
+          `https://ewealth.abchina.com.cn/app/data/api/DataService/BoeProductV2?i=${page}&s=50&o=0&w=%25E5%258F%25AF%25E5%2594%25AE%257C%257C%257C%257C%257C%257C%257C1%257C%257C0%257C%257C0`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: '*/*',
+              'Accept-Language': 'zh-CN,zh;q=0.9',
+              Connection: 'keep-alive',
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              Referer: 'https://ewealth.abchina.com.cn/',
+            },
+          },
+        );
+
+        if (!pageResponse.ok) {
+          continue;
+        }
+
+        const pageData = await pageResponse.json();
+        if (pageData.Data?.Table) {
+          allProducts.push(...pageData.Data.Table);
+        }
+      }
+
+      return allProducts.map((item) => ({
+        fundname: item.ProdName || '',
+        fundcode: item.ProductNo || '',
+        fundlevel: item.ProdYildType || '',
+        investday: item.ProdLimit || '',
+        registername: item.issuingOffice || '',
+        displayrate: item.ProdProfit || '',
+        investdaydesc: item.ProdLimit || '',
+      }));
+    } catch (error) {
+      console.error('获取农业银行数据失败:', error);
+      return [];
+    }
   }
 }
 

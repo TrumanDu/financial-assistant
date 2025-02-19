@@ -8,6 +8,7 @@ import {
   IconCalendar,
   IconShoppingBag,
   IconCreditCard,
+  IconSearch,
 } from '@douyinfe/semi-icons';
 
 function AppLayout() {
@@ -59,15 +60,6 @@ function AppLayout() {
               },
             },
             {
-              itemKey: '/savings_record',
-              text: '存款记录',
-              icon: <IconSave size="large" style={{ color: '#2196F3' }} />,
-              onClick: () => {
-                navigate('/savings_record');
-                setSelectKey(['/savings_record']);
-              },
-            },
-            {
               itemKey: '/investment',
               text: '理财产品目录',
               icon: (
@@ -87,6 +79,15 @@ function AppLayout() {
               onClick: () => {
                 navigate('/bill_record');
                 setSelectKey(['/bill_record']);
+              },
+            },
+            {
+              itemKey: '/product_discovery',
+              text: '理财产品发现',
+              icon: <IconSearch size="large" style={{ color: '#2196F3' }} />,
+              onClick: () => {
+                navigate('/product_discovery');
+                setSelectKey(['/product_discovery']);
               },
             },
           ]}
