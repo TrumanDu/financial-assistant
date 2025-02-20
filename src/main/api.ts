@@ -794,15 +794,6 @@ class API {
         return [];
       }
 
-      const temp = data.RSP_BODY.fundInfoList[0];
-      console.log(temp);
-
-      data.RSP_BODY.fundInfoList.forEach((item) => {
-        if (item.fundcode === '5811224209') {
-          console.log(item);
-        }
-      });
-
       return data.RSP_BODY.fundInfoList
         .filter((item) => Number(item.investtime) > 0)
         .map((item) => ({
