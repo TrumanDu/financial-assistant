@@ -349,7 +349,7 @@ function Dashboard() {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        minHeight: 0,
+        marginBottom: '24px',
       }}
     >
       <div
@@ -373,26 +373,24 @@ function Dashboard() {
         />
         <MetricCard title="年度收益汇总" value={formatNumber(yearlyEarnings)} />
       </div>
+
       <div
         style={{
           borderRadius: '10px',
           border: '1px solid var(--semi-color-border)',
-          flex: 1,
-          padding: '32px',
-          overflow: 'auto',
-          minHeight: 0,
+          padding: '16px',
           marginBottom: '24px',
         }}
       >
         <div style={{ display: 'flex', gap: '24px', height: '400px' }}>
-          <div style={{ flex: 1, height: '100%' }}>
+          <div style={{ flex: 1 }}>
             <h3 style={{ marginBottom: '16px' }}>资产趋势</h3>
             <ReactECharts
               option={getTrendOption()}
               style={{ height: '100%' }}
             />
           </div>
-          <div style={{ flex: 1, height: '100%' }}>
+          <div style={{ flex: 1 }}>
             <h3 style={{ marginBottom: '16px' }}>资产分布</h3>
             <ReactECharts
               option={getDistributionOption()}
@@ -406,10 +404,7 @@ function Dashboard() {
         style={{
           borderRadius: '10px',
           border: '1px solid var(--semi-color-border)',
-          flex: 1,
-          padding: '32px',
-          overflow: 'auto',
-          minHeight: 0,
+          padding: '16px',
         }}
       >
         <div
@@ -420,14 +415,14 @@ function Dashboard() {
             marginTop: '24px',
           }}
         >
-          <div style={{ flex: 1, height: '100%' }}>
+          <div style={{ flex: 1 }}>
             <h3 style={{ marginBottom: '16px' }}>账单趋势</h3>
             <ReactECharts
               option={getBillStackedBarOption()}
               style={{ height: '100%' }}
             />
           </div>
-          <div style={{ flex: 1, height: '100%' }}>
+          <div style={{ flex: 1 }}>
             <h3 style={{ marginBottom: '16px' }}>理财收益</h3>
             <ReactECharts
               option={getInvestmentEarningsLineOption()}
