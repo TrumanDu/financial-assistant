@@ -55,28 +55,53 @@ function InvestmentRecord() {
 
   const columns = [
     {
-      title: '账户',
-      dataIndex: 'owner',
-      width: 120,
+      title: '产品名',
+      dataIndex: 'product_name',
+      width: 200,
     },
     {
-      title: '产品',
-      dataIndex: 'investment_name',
-      width: 300,
-      render: (text, record) => `${record.bank} - ${text}`,
-    },
-    {
-      title: '金额',
-      dataIndex: 'money',
+      title: '本金',
+      dataIndex: 'principal',
       align: 'right',
       width: 150,
       render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
     },
     {
-      title: '记录时间',
-      dataIndex: 'in_date',
+      title: '收益',
+      dataIndex: 'earnings',
+      align: 'right',
+      width: 150,
+      render: (text) => `${Number(text).toLocaleString('zh-CN')} 元`,
+    },
+    {
+      title: '天数',
+      dataIndex: 'days',
+      align: 'right',
+      width: 100,
+    },
+    {
+      title: '记录日期',
+      dataIndex: 'record_date',
       width: 150,
       render: (value) => dateFns.format(new Date(value), 'yyyy-MM-dd'),
+    },
+    {
+      title: '年化收益',
+      dataIndex: 'annualized_return',
+      align: 'right',
+      width: 150,
+      render: (text, record) => {
+        const { principal, earnings, days } = record;
+        if (principal > 0 && days > 0) {
+          const annualizedReturn = (
+            (earnings / principal) *
+            (365 / days) *
+            100
+          ).toFixed(2);
+          return `${annualizedReturn}%`;
+        }
+        return 'N/A';
+      },
     },
     {
       title: '',

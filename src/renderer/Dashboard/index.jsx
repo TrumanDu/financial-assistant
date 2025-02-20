@@ -11,6 +11,11 @@ function Dashboard() {
   const [lastMonthBill, setLastMonthBill] = useState(0);
   const [assetsTrend, setAssetsTrend] = useState([]);
   const [assetsDistribution, setAssetsDistribution] = useState([]);
+  const [lastMonthEarnings, setLastMonthEarnings] = useState(0);
+  const [yearlyEarnings, setYearlyEarnings] = useState(0);
+  const [billRecords, setBillRecords] = useState([]);
+  const [investmentEarnings, setInvestmentEarnings] = useState([]);
+  const [billTrend, setBillTrend] = useState([]);
 
   const baiduAnalytics = () => {
     try {
@@ -98,6 +103,72 @@ function Dashboard() {
     }
   };
 
+  // 获取上月收益汇总
+  const getLastMonthEarningsSummary = () => {
+    try {
+      const earnings = window.electron.ipcRenderer.ipcSendSync(
+        'getLastMonthEarningsSummary',
+      );
+      setLastMonthEarnings(earnings);
+    } catch (error) {
+      Toast.error('获取上月收益汇总失败');
+      console.error(error);
+    }
+  };
+
+  // 获取年度收益汇总
+  const getYearlyEarningsSummary = () => {
+    try {
+      const earnings = window.electron.ipcRenderer.ipcSendSync(
+        'getYearlyEarningsSummary',
+      );
+      setYearlyEarnings(earnings);
+    } catch (error) {
+      Toast.error('获取年度收益汇总失败');
+      console.error(error);
+    }
+  };
+
+  // 获取账单记录
+  const getBillRecords = () => {
+    try {
+      const records = window.electron.ipcRenderer.ipcSendSync(
+        'getBillRecordAll',
+        {
+          data: { page: 1, pageSize: 100, account: null, month: null },
+        },
+      );
+      setBillRecords(records);
+    } catch (error) {
+      Toast.error('获取账单记录失败');
+      console.error(error);
+    }
+  };
+
+  // 获取理财收益
+  const getInvestmentEarnings = () => {
+    try {
+      const earnings = window.electron.ipcRenderer.ipcSendSync(
+        'getInvestmentRecordAll',
+      );
+      setInvestmentEarnings(earnings);
+    } catch (error) {
+      Toast.error('获取理财收益失败');
+      console.error(error);
+    }
+  };
+
+  // 获取账单趋势数据
+  const getBillTrend = () => {
+    try {
+      const trendData = window.electron.ipcRenderer.ipcSendSync('getBillTrend');
+      setBillTrend(trendData);
+    } catch (error) {
+      Toast.error('获取账单趋势数据失败');
+      console.error(error);
+    }
+  };
+
   useEffect(() => {
     baiduAnalytics();
     // 获取资产总额
@@ -108,6 +179,11 @@ function Dashboard() {
     getAssetsTrend();
     // 获取资产分布数据
     getAssetsDistribution();
+    getLastMonthEarningsSummary();
+    getYearlyEarningsSummary();
+    getBillRecords();
+    getInvestmentEarnings();
+    getBillTrend();
   }, []);
 
   const formatNumber = (num) => {
@@ -208,6 +284,65 @@ function Dashboard() {
     ],
   });
 
+  // 账单趋势柱状堆叠图配置
+  const getBillStackedBarOption = () => {
+    const months = Array.from(
+      new Set(billTrend.map((record) => record.month)),
+    ).sort();
+    const accounts = Array.from(
+      new Set(billTrend.map((record) => record.account)),
+    );
+
+    const series = accounts.map((account) => ({
+      name: account,
+      type: 'bar',
+      stack: 'total',
+      data: months.map((month) => {
+        const record = billTrend.find(
+          (r) => r.month === month && r.account === account,
+        );
+        return record ? record.total_amount : 0;
+      }),
+    }));
+
+    return {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+      },
+      legend: { data: accounts },
+      xAxis: { type: 'category', data: months },
+      yAxis: { type: 'value' },
+      series,
+    };
+  };
+
+  // 理财收益折线图配置
+  const getInvestmentEarningsLineOption = () => {
+    const months = Array.from(
+      new Set(investmentEarnings.map((record) => record.record_date)),
+    ).sort();
+    const data = months.map((month) => {
+      const records = investmentEarnings.filter((r) => r.record_date === month);
+      return records.reduce((sum, record) => sum + record.earnings, 0);
+    });
+
+    return {
+      tooltip: {
+        trigger: 'axis',
+      },
+      xAxis: { type: 'category', data: months },
+      yAxis: { type: 'value' },
+      series: [
+        {
+          data,
+          type: 'line',
+          smooth: true,
+        },
+      ],
+    };
+  };
+
   return (
     <div
       style={{
@@ -232,8 +367,11 @@ function Dashboard() {
           value={formatNumber(lastMonthBill)}
           tooltip={`${new Date().getFullYear()}年${new Date().getMonth()}月账单总额`}
         />
-        <MetricCard title="上月收益汇总" value="*****" />
-        <MetricCard title="年度收益汇总" value="*****" />
+        <MetricCard
+          title="上月收益汇总"
+          value={formatNumber(lastMonthEarnings)}
+        />
+        <MetricCard title="年度收益汇总" value={formatNumber(yearlyEarnings)} />
       </div>
       <div
         style={{
@@ -243,6 +381,7 @@ function Dashboard() {
           padding: '32px',
           overflow: 'auto',
           minHeight: 0,
+          marginBottom: '24px',
         }}
       >
         <div style={{ display: 'flex', gap: '24px', height: '400px' }}>
@@ -257,6 +396,41 @@ function Dashboard() {
             <h3 style={{ marginBottom: '16px' }}>资产分布</h3>
             <ReactECharts
               option={getDistributionOption()}
+              style={{ height: '100%' }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          borderRadius: '10px',
+          border: '1px solid var(--semi-color-border)',
+          flex: 1,
+          padding: '32px',
+          overflow: 'auto',
+          minHeight: 0,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            gap: '24px',
+            height: '400px',
+            marginTop: '24px',
+          }}
+        >
+          <div style={{ flex: 1, height: '100%' }}>
+            <h3 style={{ marginBottom: '16px' }}>账单趋势</h3>
+            <ReactECharts
+              option={getBillStackedBarOption()}
+              style={{ height: '100%' }}
+            />
+          </div>
+          <div style={{ flex: 1, height: '100%' }}>
+            <h3 style={{ marginBottom: '16px' }}>理财收益</h3>
+            <ReactECharts
+              option={getInvestmentEarningsLineOption()}
               style={{ height: '100%' }}
             />
           </div>

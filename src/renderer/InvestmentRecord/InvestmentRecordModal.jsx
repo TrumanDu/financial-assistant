@@ -7,41 +7,18 @@ import React, {
 } from 'react';
 import { Modal, Form, Toast } from '@douyinfe/semi-ui';
 import PropTypes from 'prop-types';
+import * as dateFns from 'date-fns';
 
 const InvestmentRecordModal = forwardRef((props, ref) => {
   const [visible, setVisible] = useState(false);
   const [record, setRecord] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [investmentOptions, setInvestmentOptions] = useState([]);
   const { reloadData } = props;
   const api = useRef();
 
-  const getInvestmentOptions = async () => {
-    try {
-      const options = window.electron.ipcRenderer.ipcSendSync(
-        'getInvestmentOptions',
-      );
-      setInvestmentOptions(
-        options.map((item) => ({
-          value: item.id,
-          label: `${item.owner} - ${item.name}`,
-        })),
-      );
-    } catch (error) {
-      Toast.error('获取产品列表失败');
-      console.error(error);
-    }
-  };
-
-  useEffect(() => {
-    if (visible) {
-      getInvestmentOptions();
-    }
-  }, [visible]);
-
   useImperativeHandle(ref, () => ({
     showModal: (value) => {
-      setRecord(value);
+      setRecord(value || { record_date: new Date() });
       setVisible(true);
     },
   }));
@@ -87,31 +64,39 @@ const InvestmentRecordModal = forwardRef((props, ref) => {
           api.current = formApi;
         }}
       >
-        <Form.Select
-          field="investment_id"
-          label="产品"
-          placeholder="请选择产品"
+        <Form.Input
+          field="product_name"
+          label="产品名"
+          placeholder="请输入产品名"
           style={{ width: '100%' }}
-          rules={[{ required: true, message: '请选择产品' }]}
-        >
-          {investmentOptions.map((option) => (
-            <Form.Select.Option key={option.value} value={option.value}>
-              {option.label}
-            </Form.Select.Option>
-          ))}
-        </Form.Select>
+          rules={[{ required: true, message: '请输入产品名' }]}
+        />
         <Form.InputNumber
-          field="money"
-          label="金额"
-          placeholder="请输入金额"
+          field="principal"
+          label="本金"
+          placeholder="请输入本金"
           style={{ width: '100%' }}
-          rules={[{ required: true, message: '请输入金额' }]}
+          rules={[{ required: true, message: '请输入本金' }]}
+        />
+        <Form.InputNumber
+          field="earnings"
+          label="收益"
+          placeholder="请输入收益"
+          style={{ width: '100%' }}
+          rules={[{ required: true, message: '请输入收益' }]}
+        />
+        <Form.InputNumber
+          field="days"
+          label="天数"
+          placeholder="请输入天数"
+          style={{ width: '100%' }}
+          rules={[{ required: true, message: '请输入天数' }]}
         />
         <Form.DatePicker
-          field="in_date"
-          label="记录时间"
+          field="record_date"
+          label="记录日期"
           style={{ width: '100%' }}
-          rules={[{ required: true, message: '请选择记录时间' }]}
+          rules={[{ required: true, message: '请选择记录日期' }]}
         />
       </Form>
     </Modal>

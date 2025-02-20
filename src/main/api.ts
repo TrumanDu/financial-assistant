@@ -51,94 +51,11 @@ class API {
     this.setting.updateByKey(data.key, data.value);
   }
 
-  // 获取所有理财产品
-  public async getInvestmentAll() {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        'SELECT * FROM investment ORDER BY created_at DESC',
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows);
-        },
-      );
-    });
-  }
-
-  // 添加理财产品
-  public async addInvestment(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { bank, name, owner } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        INSERT INTO investment (bank, name, owner)
-        VALUES (?, ?, ?)
-      `);
-
-      stmt.run([bank, name, owner], (err) => {
-        if (err) reject(err);
-        resolve(record);
-      });
-    });
-  }
-
-  // 更新理财产品
-  public async editInvestment(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { bank, name, owner, id } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        UPDATE investment
-        SET bank = ?, name = ?, owner = ?, updated_at = ?
-        WHERE id = ?
-      `);
-
-      const now = Date.now();
-      stmt.run([bank, name, owner, now, id], (err) => {
-        if (err) reject(err);
-        resolve({ ...record, updated_at: now });
-      });
-    });
-  }
-
-  // 删除理财产品
-  public async deleteInvestment(arg: any) {
-    const { data } = arg;
-    const { id } = data;
-    return new Promise((resolve, reject) => {
-      this.db.run('DELETE FROM investment WHERE id = ?', [id], (err) => {
-        if (err) reject(err);
-        resolve({ success: true });
-      });
-    });
-  }
-
-  // 获取所有理财收益记录（带关联数据）
+  // 获取所有理财收益记录
   public async getInvestmentRecordAll() {
     return new Promise((resolve, reject) => {
       this.db.all(
-        `SELECT
-          ir.*,
-          i.name as investment_name,
-          i.bank,
-          i.owner
-        FROM investment_record ir
-        LEFT JOIN investment i ON ir.investment_id = i.id
-        ORDER BY ir.in_date DESC`,
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows);
-        },
-      );
-    });
-  }
-
-  // 获取所有理财产品（用于下拉选择）
-  public async getInvestmentOptions() {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        'SELECT id, name, bank,owner FROM investment ORDER BY created_at DESC',
+        `SELECT * FROM investment_record ORDER BY record_date DESC`,
         (err, rows) => {
           if (err) reject(err);
           resolve(rows);
@@ -151,17 +68,20 @@ class API {
   public async addInvestmentRecord(arg: any) {
     const { data } = arg;
     const { record } = data;
-    const { investment_id, money, in_date } = record;
+    const { product_name, principal, earnings, days, record_date } = record;
     return new Promise((resolve, reject) => {
       const stmt = this.db.prepare(`
-        INSERT INTO investment_record (investment_id, money, in_date)
-        VALUES (?, ?, ?)
+        INSERT INTO investment_record (product_name, principal, earnings, days, record_date)
+        VALUES (?, ?, ?, ?, ?)
       `);
 
-      stmt.run([investment_id, money, in_date], (err) => {
-        if (err) reject(err);
-        resolve(record);
-      });
+      stmt.run(
+        [product_name, principal, earnings, days, record_date],
+        (err) => {
+          if (err) reject(err);
+          resolve(record);
+        },
+      );
     });
   }
 
@@ -169,19 +89,22 @@ class API {
   public async editInvestmentRecord(arg: any) {
     const { data } = arg;
     const { record } = data;
-    const { investment_id, money, in_date, id } = record;
+    const { product_name, principal, earnings, days, record_date, id } = record;
     return new Promise((resolve, reject) => {
       const stmt = this.db.prepare(`
         UPDATE investment_record
-        SET investment_id = ?, money = ?, in_date = ?, updated_at = ?
+        SET product_name = ?, principal = ?, earnings = ?, days = ?, record_date = ?, updated_at = ?
         WHERE id = ?
       `);
 
       const now = Date.now();
-      stmt.run([investment_id, money, in_date, now, id], (err) => {
-        if (err) reject(err);
-        resolve({ ...record, updated_at: now });
-      });
+      stmt.run(
+        [product_name, principal, earnings, days, record_date, now, id],
+        (err) => {
+          if (err) reject(err);
+          resolve({ ...record, updated_at: now });
+        },
+      );
     });
   }
 
@@ -194,97 +117,6 @@ class API {
         if (err) reject(err);
         resolve({ success: true });
       });
-    });
-  }
-
-  public async getSavingsEarnings(
-    startDate: number,
-    endDate: number,
-    dimension: string,
-  ) {
-    const periods = this.generateTimePeriods(startDate, endDate, dimension);
-
-    // 一次性查询所有数据
-    const allRecords = await new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT * FROM savings_record
-        WHERE start_date < ? AND end_date > ?`,
-        [
-          Math.max(...periods.map((p) => p.end)),
-          Math.min(...periods.map((p) => p.start)),
-        ],
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows || []);
-        },
-      );
-    });
-
-    // 在内存中处理每个时间段的统计
-    const results = periods
-      .flatMap((period) => {
-        // 按 owner 分组计算
-        const ownerStats = new Map<
-          string,
-          {
-            total_money: number;
-            earnings: number;
-            rates: number[];
-          }
-        >();
-
-        (allRecords as any[]).forEach((record) => {
-          if (
-            record.start_date < period.end &&
-            record.end_date > period.start
-          ) {
-            const { owner } = record;
-            if (!ownerStats.has(owner)) {
-              ownerStats.set(owner, {
-                total_money: 0,
-                earnings: 0,
-                rates: [],
-              });
-            }
-
-            const stats = ownerStats.get(owner)!;
-            stats.total_money += record.money;
-            stats.rates.push(record.rate);
-
-            const effectiveStartDate = Math.max(
-              record.start_date,
-              period.start,
-            );
-            const effectiveEndDate = Math.min(record.end_date, period.end);
-            const daysInPeriod =
-              (effectiveEndDate - effectiveStartDate) / (24 * 60 * 60 * 1000);
-
-            stats.earnings +=
-              (record.money * record.rate * daysInPeriod) / (365 * 100);
-          }
-        });
-
-        // 只返回有数据的期间
-        if (ownerStats.size === 0) {
-          return [];
-        }
-
-        return Array.from(ownerStats.entries()).map(([owner, stats]) => ({
-          period: period.period,
-          owner,
-          total_money: stats.total_money,
-          earnings: stats.earnings,
-          avg_rate: stats.rates.reduce((a, b) => a + b, 0) / stats.rates.length,
-        }));
-      })
-      // 过滤掉空数组（没有数据的期间）
-      .filter((result) => result.total_money > 0);
-
-    // 按期间和所有者排序
-    return results.sort((a, b) => {
-      const periodCompare = a.period.localeCompare(b.period);
-      if (periodCompare !== 0) return periodCompare;
-      return a.owner.localeCompare(b.owner);
     });
   }
 
@@ -935,6 +767,92 @@ class API {
       console.error('获取农业银行数据失败:', error);
       return [];
     }
+  }
+
+  // 获取上月收益汇总
+  public async getLastMonthEarningsSummary() {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      this.db.all(
+        `SELECT
+          SUM(earnings) as total_earnings
+        FROM investment_record
+        WHERE record_date >= ? AND record_date <= ?`,
+        [lastMonth.getTime(), lastMonthEnd.getTime()],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows[0]?.total_earnings || 0);
+        },
+      );
+    });
+  }
+
+  // 获取年度收益汇总
+  public async getYearlyEarningsSummary() {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+      this.db.all(
+        `SELECT
+          SUM(earnings) as total_earnings
+        FROM investment_record
+        WHERE record_date >= ?`,
+        [startOfYear.getTime()],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows[0]?.total_earnings || 0);
+        },
+      );
+    });
+  }
+
+  // 获取账单趋势数据
+  public async getBillTrend() {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      this.db.all(
+        `SELECT
+          strftime('%Y-%m', datetime(month/1000, 'unixepoch')) as month,
+          account,
+          SUM(amount) as total_amount
+        FROM bill_record
+        WHERE month >= ?
+        GROUP BY account, strftime('%Y-%m', datetime(month/1000, 'unixepoch'))
+        ORDER BY month ASC`,
+        [startDate.getTime()],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        },
+      );
+    });
+  }
+
+  // 获取理财收益趋势数据
+  public async getInvestmentEarningsTrend() {
+    return new Promise((resolve, reject) => {
+      const now = new Date();
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      this.db.all(
+        `SELECT
+          strftime('%Y-%m', datetime(record_date/1000, 'unixepoch')) as month,
+          SUM(earnings) as total_earnings
+        FROM investment_record
+        WHERE record_date >= ?
+        GROUP BY strftime('%Y-%m', datetime(record_date/1000, 'unixepoch'))
+        ORDER BY month ASC`,
+        [startDate.getTime()],
+        (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        },
+      );
+    });
   }
 }
 

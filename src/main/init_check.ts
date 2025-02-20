@@ -45,43 +45,17 @@ export default class InitCheck {
 
   static initDatabase(dbPath: string) {
     const db = new Database(dbPath);
-    // 创建存款记录表
-    db.run(`
-        CREATE TABLE IF NOT EXISTS savings_record (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          owner TEXT NOT NULL,
-          money DECIMAL(10,2) NOT NULL,
-          rate DECIMAL(5,2) NOT NULL,
-          start_date INTEGER NOT NULL,
-          end_date INTEGER NOT NULL,
-          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-        )
-      `);
-
-    // 创建理财产品表
-    db.run(`
-      CREATE TABLE IF NOT EXISTS investment (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        bank TEXT NOT NULL,
-        name TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-      )
-    `);
-
     // 创建理财收益记录表
     db.run(`
       CREATE TABLE IF NOT EXISTS investment_record (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        investment_id INTEGER NOT NULL,
-        money DECIMAL(10,2) NOT NULL,
-        in_date INTEGER NOT NULL,
+        product_name TEXT NOT NULL,
+        principal DECIMAL NOT NULL,
+        earnings DECIMAL NOT NULL,
+        days INTEGER NOT NULL,
+        record_date DATE NOT NULL,
         created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-        FOREIGN KEY (investment_id) REFERENCES investment (id)
+        updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
       )
     `);
     // 记录资产
