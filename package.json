@@ -231,7 +231,7 @@
     "publish": {
       "provider": "github",
       "owner": "TrumanDu",
-      "repo": "toolkit"
+      "repo": "financial-assistant"
     }
   },
   "devEngines": {
