@@ -6,6 +6,8 @@ const path = require('path');
 // edit sqlite3 package.json
 const sqlite3Path = path.join(
   process.cwd(),
+  'release',
+  'app',
   'node_modules',
   'sqlite3',
   'package.json',
