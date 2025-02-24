@@ -7,11 +7,15 @@ on:
 
 jobs:
   publish:
-    runs-on: ${{ matrix.os }}
-
     strategy:
       matrix:
-        os: [macos-latest]
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout git repo
@@ -41,4 +45,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node release/app/fixSqlite3bug.js
-          npm exec electron-builder -- --publish always --win --mac --linux
+          npm exec electron-builder -- --publish always --${{ matrix.platform }}
