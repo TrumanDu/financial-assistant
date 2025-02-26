@@ -33,3 +33,11 @@ npm run package
 ```
 npm run package -- --mac
 ```
+
+## 安装问题
+
+mac
+
+```
+sudo xattr -dr com.apple.quarantine /Applications/FinancialAssistant.app
+```
