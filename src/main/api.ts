@@ -773,15 +773,15 @@ class API {
   public async getLastMonthEarningsSummary() {
     return new Promise((resolve, reject) => {
       const now = new Date();
-      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
       this.db.all(
         `SELECT
           SUM(earnings) as total_earnings
         FROM investment_record
         WHERE record_date >= ? AND record_date <= ?`,
-        [lastMonth.getTime(), lastMonthEnd.getTime()],
+        [startOfMonth.getTime(), endOfMonth.getTime()],
         (err, rows) => {
           if (err) reject(err);
           resolve(rows[0]?.total_earnings || 0);

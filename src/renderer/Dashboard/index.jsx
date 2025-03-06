@@ -169,6 +169,19 @@ function Dashboard() {
     }
   };
 
+  // 获取理财收益趋势数据
+  const getInvestmentEarningsTrend = () => {
+    try {
+      const earnings = window.electron.ipcRenderer.ipcSendSync(
+        'getInvestmentEarningsTrend',
+      );
+      setInvestmentEarnings(earnings);
+    } catch (error) {
+      Toast.error('获取理财收益趋势失败');
+      console.error(error);
+    }
+  };
+
   useEffect(() => {
     baiduAnalytics();
     // 获取资产总额
@@ -182,7 +195,7 @@ function Dashboard() {
     getLastMonthEarningsSummary();
     getYearlyEarningsSummary();
     getBillRecords();
-    getInvestmentEarnings();
+    getInvestmentEarningsTrend(); // 修改这里
     getBillTrend();
   }, []);
 
@@ -319,25 +332,42 @@ function Dashboard() {
 
   // 理财收益折线图配置
   const getInvestmentEarningsLineOption = () => {
-    const months = Array.from(
-      new Set(investmentEarnings.map((record) => record.record_date)),
-    ).sort();
-    const data = months.map((month) => {
-      const records = investmentEarnings.filter((r) => r.record_date === month);
-      return records.reduce((sum, record) => sum + record.earnings, 0);
-    });
+    const data = investmentEarnings.map((record) => ({
+      month: record.month,
+      earnings: record.total_earnings,
+    }));
 
     return {
       tooltip: {
         trigger: 'axis',
+        formatter: (params) => {
+          return `${params[0].name}<br/>收益: ￥${formatNumber(params[0].value)}`;
+        },
       },
-      xAxis: { type: 'category', data: months },
-      yAxis: { type: 'value' },
+      xAxis: {
+        type: 'category',
+        data: data.map((item) => item.month),
+        axisLabel: {
+          formatter: (value) => {
+            return value.substring(5); // 只显示月份
+          },
+        },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: {
+          formatter: (value) => `￥${formatNumber(value)}`,
+        },
+      },
       series: [
         {
-          data,
+          data: data.map((item) => item.earnings),
           type: 'line',
           smooth: true,
+          symbolSize: 8,
+          lineStyle: {
+            width: 2,
+          },
         },
       ],
     };

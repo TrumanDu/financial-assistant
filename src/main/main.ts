@@ -88,10 +88,8 @@ app
       // dock icon is clicked and there are no other windows open.
       if (mainWindow === null) {
         createWindow();
-      } else if (mainWindow?.isVisible()) {
-        mainWindow.hide();
       } else {
-        mainWindow?.show();
+        mainWindow.focus();
       }
     });
   })
