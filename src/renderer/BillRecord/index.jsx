@@ -11,6 +11,7 @@ import {
   Pagination,
   Select,
   DatePicker,
+  Dropdown,
 } from '@douyinfe/semi-ui';
 import {
   IconEdit,
@@ -20,6 +21,7 @@ import {
 } from '@douyinfe/semi-icons';
 import * as dateFns from 'date-fns';
 import BillRecordModal from './BillRecordModal';
+import BatchBillRecordModal from './BatchBillRecordModal';
 
 function BillRecord() {
   const [dataSource, setData] = useState([]);
@@ -29,6 +31,7 @@ function BillRecord() {
   const [filterAccount, setFilterAccount] = useState('');
   const [filterMonth, setFilterMonth] = useState(null);
   const modalRef = useRef();
+  const batchModalRef = useRef();
 
   const getData = async (currentPage = 1) => {
     try {
@@ -74,6 +77,12 @@ function BillRecord() {
   const add = () => {
     if (modalRef.current) {
       modalRef.current.showModal(null);
+    }
+  };
+
+  const batchAdd = () => {
+    if (batchModalRef.current) {
+      batchModalRef.current.showModal();
     }
   };
 
@@ -235,9 +244,18 @@ function BillRecord() {
             </Row>
           </Col>
           <Col>
-            <Button icon={<IconPlus />} theme="solid" onClick={add}>
-              新增
-            </Button>
+            <Dropdown
+              render={
+                <Dropdown.Menu>
+                  <Dropdown.Item onClick={add}>单条添加</Dropdown.Item>
+                  <Dropdown.Item onClick={batchAdd}>批量添加</Dropdown.Item>
+                </Dropdown.Menu>
+              }
+            >
+              <Button icon={<IconPlus />} theme="solid">
+                新增
+              </Button>
+            </Dropdown>
           </Col>
         </Row>
         <Table columns={columns} dataSource={dataSource} pagination={false} />
@@ -252,6 +270,10 @@ function BillRecord() {
           />
         </div>
         <BillRecordModal ref={modalRef} reloadData={() => getData(page)} />
+        <BatchBillRecordModal
+          ref={batchModalRef}
+          reloadData={() => getData(page)}
+        />
       </div>
     </div>
   );
