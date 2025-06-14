@@ -136,15 +136,29 @@ class API {
   // 更新资产趋势记录
   private async updateAssetsTrend(date: number) {
     try {
-      // 获取指定日期的所有资产汇总
+      // 将日期转换为当月第一天
+      const recordDate = new Date(date);
+      const monthStart = new Date(
+        recordDate.getFullYear(),
+        recordDate.getMonth(),
+        1,
+      );
+      const monthEnd = new Date(
+        recordDate.getFullYear(),
+        recordDate.getMonth() + 1,
+        0,
+      );
+      monthStart.setHours(0, 0, 0, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+
+      // 获取当月的所有资产记录总和
       const summary = await new Promise((resolve, reject) => {
         this.db.all(
           `SELECT
-            SUM(amount) as total_amount
+            COALESCE(SUM(amount), 0) as total_amount
           FROM assets_record
-          WHERE date <= ?
-        `,
-          [date],
+          WHERE date >= ? AND date <= ?`,
+          [monthStart.getTime(), monthEnd.getTime()],
           (err, rows) => {
             if (err) reject(err);
             resolve(rows || []);
@@ -152,17 +166,19 @@ class API {
         );
       });
 
-      // 检查当天是否已有记录
+      // 检查当月是否已有记录
       const existingRecord = await new Promise((resolve, reject) => {
         this.db.get(
           'SELECT id FROM assets_trend WHERE date = ?',
-          [date],
+          [monthStart.getTime()],
           (err, row) => {
             if (err) reject(err);
             resolve(row);
           },
         );
       });
+
+      const totalAmount = summary.length > 0 ? summary[0].total_amount || 0 : 0;
 
       if (existingRecord) {
         // 更新现有记录
@@ -175,10 +191,8 @@ class API {
         `);
 
         const now = Date.now();
-        const totalAmount = summary.length > 0 ? summary[0].total_amount : 0;
-
         await new Promise((resolve, reject) => {
-          stmt.run([totalAmount, now, date], (err) => {
+          stmt.run([totalAmount, now, monthStart.getTime()], (err) => {
             if (err) reject(err);
             resolve(true);
           });
@@ -191,10 +205,8 @@ class API {
           VALUES (?, ?)
         `);
 
-        const totalAmount = summary.length > 0 ? summary[0].total_amount : 0;
-
         await new Promise((resolve, reject) => {
-          stmt.run([date, totalAmount], (err) => {
+          stmt.run([monthStart.getTime(), totalAmount], (err) => {
             if (err) reject(err);
             resolve(true);
           });
@@ -272,9 +284,17 @@ class API {
         [id],
         async (err) => {
           if (err) reject(err);
-          // 更新资产趋势
+          // 只在删除当月记录时更新资产趋势
           if (record) {
-            await this.updateAssetsTrend(record.date);
+            const now = new Date();
+            const recordDate = new Date(record.date);
+            if (
+              now.getFullYear() === recordDate.getFullYear() &&
+              now.getMonth() === recordDate.getMonth()
+            ) {
+              console.log('更新资产趋势', record.date);
+              await this.updateAssetsTrend(record.date);
+            }
           }
           resolve({ success: true });
         },
