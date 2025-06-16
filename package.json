@@ -1,6 +1,6 @@
 {
   "name": "financial-assistant",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "household financial assistant",
   "keywords": [
     "electron",
@@ -231,7 +231,8 @@
     "publish": {
       "provider": "github",
       "owner": "TrumanDu",
-      "repo": "financial-assistant"
+      "repo": "financial-assistant",
+      "releaseType": "release"
     }
   },
   "devEngines": {
