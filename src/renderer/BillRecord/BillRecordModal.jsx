@@ -7,6 +7,12 @@ import React, {
 import { Modal, Form, Toast } from '@douyinfe/semi-ui';
 import PropTypes from 'prop-types';
 
+const getLastMonth = () => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 1);
+  return date;
+};
+
 const BillRecordModal = forwardRef((props, ref) => {
   const [visible, setVisible] = useState(false);
   const [record, setRecord] = useState(null);
@@ -66,7 +72,7 @@ const BillRecordModal = forwardRef((props, ref) => {
       <Form
         initValues={{
           ...record,
-          month: record ? new Date(record.month) : new Date(),
+          month: record ? new Date(record.month) : getLastMonth(),
         }}
         getFormApi={(formApi) => {
           api.current = formApi;

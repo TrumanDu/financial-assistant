@@ -3,11 +3,10 @@ import React, {
   useImperativeHandle,
   useState,
   useRef,
-  useEffect,
 } from 'react';
 import { Modal, Form, Toast } from '@douyinfe/semi-ui';
 import PropTypes from 'prop-types';
-import * as dateFns from 'date-fns';
+import { getDaysInMonth, subMonths } from 'date-fns';
 
 const InvestmentRecordModal = forwardRef((props, ref) => {
   const [visible, setVisible] = useState(false);
@@ -18,7 +17,15 @@ const InvestmentRecordModal = forwardRef((props, ref) => {
 
   useImperativeHandle(ref, () => ({
     showModal: (value) => {
-      setRecord(value || { record_date: new Date() });
+      const lastMonth = subMonths(new Date(), 1);
+      const daysInLastMonth = getDaysInMonth(lastMonth);
+      setRecord(
+        value || {
+          record_date: new Date(),
+          principal: 0,
+          days: daysInLastMonth,
+        },
+      );
       setVisible(true);
     },
   }));
@@ -72,18 +79,18 @@ const InvestmentRecordModal = forwardRef((props, ref) => {
           rules={[{ required: true, message: '请输入产品名' }]}
         />
         <Form.InputNumber
-          field="principal"
-          label="本金"
-          placeholder="请输入本金"
-          style={{ width: '100%' }}
-          rules={[{ required: true, message: '请输入本金' }]}
-        />
-        <Form.InputNumber
           field="earnings"
           label="收益"
           placeholder="请输入收益"
           style={{ width: '100%' }}
           rules={[{ required: true, message: '请输入收益' }]}
+        />
+        <Form.InputNumber
+          field="principal"
+          label="本金"
+          placeholder="请输入本金"
+          style={{ width: '100%' }}
+          rules={[{ required: true, message: '请输入本金' }]}
         />
         <Form.InputNumber
           field="days"
