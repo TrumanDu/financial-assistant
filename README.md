@@ -37,8 +37,7 @@ npm run package -- --mac
 CI 发布包流程
 
 1. 更新`release/app/package.json` 中的版本信息 例如：`0.2.3`
-2. 在 github 发布 draft, title 为版本信息 例如：`0.2.3`
-3. 创建 tag,格式为`v0.2.3` 命令：`git tag v0.2.4, git push origin v0.2.4`
+2. 在 github 发布 release, title 为版本信息 例如：`0.2.3`,创建tag, 格式为`v0.2.3`
 
 ## 安装问题
 
