@@ -96,6 +96,25 @@ const configuration: webpack.Configuration = {
   optimization: {
     minimize: true,
     minimizer: [new TerserPlugin(), new CssMinimizerPlugin()],
+    splitChunks: {
+      chunks: 'all',
+      minSize: 20000,
+      minChunks: 1,
+      maxAsyncRequests: 30,
+      maxInitialRequests: 30,
+      cacheGroups: {
+        defaultVendors: {
+          test: /[\\/]node_modules[\\/]/,
+          priority: -10,
+          reuseExistingChunk: true,
+        },
+        default: {
+          minChunks: 2,
+          priority: -20,
+          reuseExistingChunk: true,
+        },
+      },
+    },
   },
 
   plugins: [
@@ -114,7 +133,8 @@ const configuration: webpack.Configuration = {
     }),
 
     new MiniCssExtractPlugin({
-      filename: 'style.css',
+      filename: '[name].[contenthash].css',
+      chunkFilename: '[id].[contenthash].css',
     }),
 
     new BundleAnalyzerPlugin({

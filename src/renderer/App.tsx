@@ -1,25 +1,65 @@
 /* eslint-disable react/function-component-definition */
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 
 import './App.css';
 import AppLayout from './AppLayout';
-import Dashboard from './Dashboard';
-import InvestmentRecord from './InvestmentRecord';
-import RecordAssets from './RecordAssets';
-import BillRecord from './BillRecord';
-import ProductDiscovery from './ProductDiscovery';
+
+// 懒加载组件
+const Dashboard = lazy(() => import('./Dashboard'));
+const InvestmentRecord = lazy(() => import('./InvestmentRecord'));
+const RecordAssets = lazy(() => import('./RecordAssets'));
+const BillRecord = lazy(() => import('./BillRecord'));
+const ProductDiscovery = lazy(() => import('./ProductDiscovery'));
+
+// 加载中组件
+const Loading = () => <div>加载中...</div>;
 
 export default function App() {
   return (
     <Router>
       <Routes>
         <Route path="/*" element={<AppLayout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="investment_record" element={<InvestmentRecord />} />
-          <Route path="record_assets" element={<RecordAssets />} />
-          <Route path="bill_record" element={<BillRecord />} />
-          <Route path="product_discovery" element={<ProductDiscovery />} />
+          <Route
+            index
+            element={
+              <Suspense fallback={<Loading />}>
+                <Dashboard />
+              </Suspense>
+            }
+          />
+          <Route
+            path="investment_record"
+            element={
+              <Suspense fallback={<Loading />}>
+                <InvestmentRecord />
+              </Suspense>
+            }
+          />
+          <Route
+            path="record_assets"
+            element={
+              <Suspense fallback={<Loading />}>
+                <RecordAssets />
+              </Suspense>
+            }
+          />
+          <Route
+            path="bill_record"
+            element={
+              <Suspense fallback={<Loading />}>
+                <BillRecord />
+              </Suspense>
+            }
+          />
+          <Route
+            path="product_discovery"
+            element={
+              <Suspense fallback={<Loading />}>
+                <ProductDiscovery />
+              </Suspense>
+            }
+          />
         </Route>
       </Routes>
     </Router>
