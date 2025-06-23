@@ -837,12 +837,12 @@ class API {
       const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
       this.db.all(
         `SELECT
-          strftime('%Y-%m', datetime(month/1000, 'unixepoch')) as month,
+          strftime('%Y-%m', datetime(month/1000.0, 'unixepoch', '+8 hours')) as month,
           account,
           SUM(amount) as total_amount
         FROM bill_record
         WHERE month >= ?
-        GROUP BY account, strftime('%Y-%m', datetime(month/1000, 'unixepoch'))
+        GROUP BY account, strftime('%Y-%m', datetime(month/1000.0, 'unixepoch', '+8 hours'))
         ORDER BY month ASC`,
         [startDate.getTime()],
         (err, rows) => {
