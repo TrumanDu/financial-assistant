@@ -22,6 +22,12 @@ class API {
     this.db = new Database(initCheck.dbPath);
   }
 
+  // 从时间戳提取本地年月（纯数学，不依赖 Date 时区）
+  private getYearMonth(ts: number): { year: number; month: number } {
+    const d = new Date(ts);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }
+
   public listen() {
     ipcMain.on('trigger', async (event, arg) => {
       console.log(arg);
@@ -133,32 +139,128 @@ class API {
     });
   }
 
-  // 更新资产趋势记录
-  private async updateAssetsTrend(date: number) {
-    try {
-      // 将日期转换为当月第一天
-      const recordDate = new Date(date);
-      const monthStart = new Date(
-        recordDate.getFullYear(),
-        recordDate.getMonth(),
-        1,
-      );
-      const monthEnd = new Date(
-        recordDate.getFullYear(),
-        recordDate.getMonth() + 1,
-        0,
-      );
-      monthStart.setHours(0, 0, 0, 0);
-      monthEnd.setHours(23, 59, 59, 999);
+  // 按月份查询资产明细
+  public async getAssetsRecordByMonth(arg: any) {
+    const { data } = arg;
+    const { year, month } = data;
 
-      // 获取当月的所有资产记录总和
-      const summary = await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT * FROM assets_record ORDER BY date DESC',
+        [],
+        (err, rows) => {
+          if (err) return reject(err);
+          // JS侧按年月过滤，避免SQLite时区问题
+          const filtered = (rows || []).filter((r) => {
+            const d = new Date(r.date);
+            return d.getFullYear() === year && d.getMonth() === month;
+          });
+          resolve(filtered);
+        },
+      );
+    });
+  }
+
+  // 获取最近有数据月份的资产明细（用于继承）
+  public async getAssetsRecordLatestMonth(arg: any) {
+    const { data } = arg;
+    const { year, month } = data;
+
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT * FROM assets_record ORDER BY date DESC',
+        [],
+        (err, rows) => {
+          if (err) return reject(err);
+          if (!rows || rows.length === 0) return resolve([]);
+          // JS侧过滤：在目标月份之前的记录
+          const beforeMonth = rows.filter((r) => {
+            const d = new Date(r.date);
+            return (
+              d.getFullYear() < year ||
+              (d.getFullYear() === year && d.getMonth() < month)
+            );
+          });
+          if (beforeMonth.length === 0) return resolve([]);
+          // 按 type+memo 取最新记录，区分同类型不同账户
+          const latestByKey = new Map();
+          for (const row of beforeMonth) {
+            const key = `${row.type}||${row.memo || ''}`;
+            if (!latestByKey.has(key)) {
+              latestByKey.set(key, row);
+            }
+          }
+          resolve(Array.from(latestByKey.values()));
+        },
+      );
+    });
+  }
+
+  // 批量保存某月全部资产明细（替换模式）
+  public async saveAssetsForMonth(arg: any) {
+    const { data } = arg;
+    const { records, year, month } = data;
+    const monthStart = new Date(year, month, 1);
+    monthStart.setHours(0, 0, 0, 0);
+    const monthTimestamp = monthStart.getTime();
+
+    // 1. 删除该月所有旧记录（JS过滤，避免SQLite时区问题）
+    const existingRecords = await new Promise<any[]>((resolve, reject) => {
+      this.db.all(
+        'SELECT id, date FROM assets_record',
+        (err, rows) => (err ? reject(err) : resolve(rows || [])),
+      );
+    });
+    const idsToDelete = existingRecords
+      .filter((r) => {
+        const d = new Date(r.date);
+        return d.getFullYear() === year && d.getMonth() === month;
+      })
+      .map((r) => r.id);
+    if (idsToDelete.length > 0) {
+      const placeholders = idsToDelete.map(() => '?').join(',');
+      await new Promise<void>((resolve, reject) => {
+        this.db.run(
+          `DELETE FROM assets_record WHERE id IN (${placeholders})`,
+          idsToDelete,
+          (err) => (err ? reject(err) : resolve()),
+        );
+      });
+    }
+
+    // 2. 插入新记录
+    await new Promise<void>((resolve, reject) => {
+      const stmt = this.db.prepare(
+        'INSERT INTO assets_record (type, amount, currency, date, memo) VALUES (?, ?, ?, ?, ?)',
+      );
+      for (const record of records) {
+        stmt.run([
+          record.type,
+          record.amount,
+          record.currency,
+          monthTimestamp,
+          record.memo || '',
+        ]);
+      }
+      stmt.finalize((err) => (err ? reject(err) : resolve()));
+    });
+
+    // 3. 清空旧趋势并全量重算
+    await this.recomputeAssetsTrend();
+    return { success: true, count: records.length };
+  }
+
+  // Carry-Forward 趋势全量重算：从最早记录到当前月
+  private async recomputeAssetsTrend() {
+    try {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+
+      // 获取所有资产记录
+      const allRecords = await new Promise<any[]>((resolve, reject) => {
         this.db.all(
-          `SELECT
-            COALESCE(SUM(amount), 0) as total_amount
-          FROM assets_record
-          WHERE date >= ? AND date <= ?`,
-          [monthStart.getTime(), monthEnd.getTime()],
+          'SELECT id, type, amount, memo, date FROM assets_record ORDER BY date ASC',
           (err, rows) => {
             if (err) reject(err);
             resolve(rows || []);
@@ -166,138 +268,80 @@ class API {
         );
       });
 
-      // 检查当月是否已有记录
-      const existingRecord = await new Promise((resolve, reject) => {
-        this.db.get(
-          'SELECT id FROM assets_trend WHERE date = ?',
-          [monthStart.getTime()],
-          (err, row) => {
-            if (err) reject(err);
-            resolve(row);
-          },
+      // 规范化日期到当月1号（本地时区）
+      for (const row of allRecords) {
+        const d = new Date(row.date);
+        const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+        firstOfMonth.setHours(0, 0, 0, 0);
+        const normalized = firstOfMonth.getTime();
+        if (row.date !== normalized) {
+          await new Promise<void>((resolve, reject) => {
+            this.db.run(
+              'UPDATE assets_record SET date = ? WHERE id = ?',
+              [normalized, row.id],
+              (err) => (err ? reject(err) : resolve()),
+            );
+          });
+          row.date = normalized;
+        }
+      }
+
+      // 清空旧趋势
+      await new Promise<void>((resolve, reject) => {
+        this.db.run('DELETE FROM assets_trend', (err) =>
+          err ? reject(err) : resolve(),
         );
       });
 
-      const totalAmount = summary.length > 0 ? summary[0].total_amount || 0 : 0;
+      if (allRecords.length === 0) return true;
 
-      if (existingRecord) {
-        // 更新现有记录
-        const stmt = this.db.prepare(`
-          UPDATE assets_trend
-          SET
-            amount = ?,
-            updated_at = ?
-          WHERE date = ?
-        `);
+      // 用 type+memo 作为唯一键，区分同类型但不同账户的资产
+      const getKey = (r: any) => `${r.type}||${r.memo || ''}`;
+      const allKeys = [...new Set(allRecords.map(getKey))];
 
-        const now = Date.now();
-        await new Promise((resolve, reject) => {
-          stmt.run([totalAmount, now, monthStart.getTime()], (err) => {
-            if (err) reject(err);
-            resolve(true);
-          });
-        });
-      } else {
-        // 插入新记录
-        const stmt = this.db.prepare(`
-          INSERT INTO assets_trend
-          (date, amount)
-          VALUES (?, ?)
-        `);
+      const fromMonth = new Date(allRecords[0].date);
+      fromMonth.setDate(1);
+      fromMonth.setHours(0, 0, 0, 0);
 
-        await new Promise((resolve, reject) => {
-          stmt.run([monthStart.getTime(), totalAmount], (err) => {
-            if (err) reject(err);
-            resolve(true);
-          });
-        });
+      const month = new Date(fromMonth);
+
+      while (month <= currentMonthStart) {
+        const monthEnd = new Date(
+          month.getFullYear(),
+          month.getMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        let total = 0;
+        for (const key of allKeys) {
+          const latest = allRecords
+            .filter((r) => getKey(r) === key && r.date <= monthEnd.getTime())
+            .sort((a, b) => b.date - a.date)[0];
+          if (latest) total += latest.amount;
+        }
+
+        await this.upsertAssetsTrend(month.getTime(), total);
+        month.setMonth(month.getMonth() + 1);
       }
 
       return true;
     } catch (error) {
-      log.error('更新资产趋势失败:', error);
+      log.error('重算资产趋势失败:', error);
       throw error;
     }
   }
 
-  // 添加资产记录
-  public async addAssetsRecord(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { type, amount, currency, date, memo } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        INSERT INTO assets_record (type, amount, currency, date, memo)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-
-      stmt.run([type, amount, currency, date, memo], async (err) => {
-        if (err) reject(err);
-        // 更新资产趋势
-        await this.updateAssetsTrend(date);
-        resolve(record);
-      });
-    });
-  }
-
-  // 更新资产记录
-  public async editAssetsRecord(arg: any) {
-    const { data } = arg;
-    const { record } = data;
-    const { type, amount, currency, date, memo, id } = record;
-    return new Promise((resolve, reject) => {
-      const stmt = this.db.prepare(`
-        UPDATE assets_record
-        SET type = ?, amount = ?, currency = ?, date = ?, memo = ?, updated_at = ?
-        WHERE id = ?
-      `);
-
-      const now = Date.now();
-      stmt.run([type, amount, currency, date, memo, now, id], async (err) => {
-        if (err) reject(err);
-        // 更新资产趋势
-        await this.updateAssetsTrend(date);
-        resolve({ ...record, updated_at: now });
-      });
-    });
-  }
-
-  // 删除资产记录
-  public async deleteAssetsRecord(arg: any) {
-    const { data } = arg;
-    const { id } = data;
-    // 获取记录的日期
-    const record = await new Promise((resolve, reject) => {
-      this.db.get(
-        'SELECT date FROM assets_record WHERE id = ?',
-        [id],
-        (err, row) => {
-          if (err) reject(err);
-          resolve(row);
-        },
-      );
-    });
-
-    return new Promise((resolve, reject) => {
+  // UPSERT 资产趋势记录
+  private async upsertAssetsTrend(date: number, amount: number) {
+    await new Promise<void>((resolve, reject) => {
       this.db.run(
-        'DELETE FROM assets_record WHERE id = ?',
-        [id],
-        async (err) => {
-          if (err) reject(err);
-          // 只在删除当月记录时更新资产趋势
-          if (record) {
-            const now = new Date();
-            const recordDate = new Date(record.date);
-            if (
-              now.getFullYear() === recordDate.getFullYear() &&
-              now.getMonth() === recordDate.getMonth()
-            ) {
-              console.log('更新资产趋势', record.date);
-              await this.updateAssetsTrend(record.date);
-            }
-          }
-          resolve({ success: true });
-        },
+        'INSERT INTO assets_trend (date, amount) VALUES (?, ?)',
+        [date, amount],
+        (err) => (err ? reject(err) : resolve()),
       );
     });
   }
