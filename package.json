@@ -1,6 +1,6 @@
 {
   "name": "financial-assistant",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "household financial assistant",
   "keywords": [
     "electron",
@@ -235,7 +235,7 @@
       "releaseType": "release"
     }
   },
-  "devEngines": {
+  "engines": {
     "node": ">=14.x",
     "npm": ">=7.x"
   },
