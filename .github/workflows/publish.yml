@@ -30,6 +30,10 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install and build
         run: |
           python3 -m pip install --break-system-packages setuptools
