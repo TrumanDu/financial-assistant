@@ -81,8 +81,19 @@ function Dashboard() {
       const records =
         window.electron.ipcRenderer.ipcSendSync('getAssetsRecordAll');
 
+      // 按本地年月分组，找最近有数据的月份
+      const monthKey = (r) => {
+        const d = new Date(r.date);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+      const latestKey = records.reduce(
+        (best, r) => (monthKey(r) > best ? monthKey(r) : best),
+        '0000-00',
+      );
+      const latestRecords = records.filter((r) => monthKey(r) === latestKey);
+
       // 按类型分组并计算总额
-      const distribution = records.reduce((acc, record) => {
+      const distribution = latestRecords.reduce((acc, record) => {
         if (!acc[record.type]) {
           acc[record.type] = 0;
         }

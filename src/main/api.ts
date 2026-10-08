@@ -28,6 +28,12 @@ class API {
     return { year: d.getFullYear(), month: d.getMonth() };
   }
 
+  // 本地时区的 YYYY-MM 分组键，用于按自然月聚合
+  private monthKey(ts: number): string {
+    const { year, month } = this.getYearMonth(ts);
+    return `${year}-${String(month + 1).padStart(2, '0')}`;
+  }
+
   public listen() {
     ipcMain.on('trigger', async (event, arg) => {
       console.log(arg);
@@ -84,6 +90,7 @@ class API {
       stmt.run(
         [product_name, principal, earnings, days, record_date],
         (err) => {
+          stmt.finalize();
           if (err) reject(err);
           resolve(record);
         },
@@ -107,6 +114,7 @@ class API {
       stmt.run(
         [product_name, principal, earnings, days, record_date, now, id],
         (err) => {
+          stmt.finalize();
           if (err) reject(err);
           resolve({ ...record, updated_at: now });
         },
@@ -206,9 +214,8 @@ class API {
 
     // 1. 删除该月所有旧记录（JS过滤，避免SQLite时区问题）
     const existingRecords = await new Promise<any[]>((resolve, reject) => {
-      this.db.all(
-        'SELECT id, date FROM assets_record',
-        (err, rows) => (err ? reject(err) : resolve(rows || [])),
+      this.db.all('SELECT id, date FROM assets_record', (err, rows) =>
+        err ? reject(err) : resolve(rows || []),
       );
     });
     const idsToDelete = existingRecords
@@ -245,149 +252,61 @@ class API {
       stmt.finalize((err) => (err ? reject(err) : resolve()));
     });
 
-    // 3. 清空旧趋势并全量重算
-    await this.recomputeAssetsTrend();
     return { success: true, count: records.length };
   }
 
-  // Carry-Forward 趋势全量重算：从最早记录到当前月
-  private async recomputeAssetsTrend() {
-    try {
-      const now = new Date();
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
+  private processAssetsSummary(
+    allRecords: { date: number; amount: number }[],
+  ): number {
+    if (allRecords.length === 0) return 0;
 
-      // 获取所有资产记录
-      const allRecords = await new Promise<any[]>((resolve, reject) => {
-        this.db.all(
-          'SELECT id, type, amount, memo, date FROM assets_record ORDER BY date ASC',
-          (err, rows) => {
-            if (err) reject(err);
-            resolve(rows || []);
-          },
-        );
-      });
+    const latestKey = allRecords.reduce((best, r) => {
+      const key = this.monthKey(r.date);
+      return key > best ? key : best;
+    }, '0000-00');
 
-      // 规范化日期到当月1号（本地时区）
-      for (const row of allRecords) {
-        const d = new Date(row.date);
-        const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-        firstOfMonth.setHours(0, 0, 0, 0);
-        const normalized = firstOfMonth.getTime();
-        if (row.date !== normalized) {
-          await new Promise<void>((resolve, reject) => {
-            this.db.run(
-              'UPDATE assets_record SET date = ? WHERE id = ?',
-              [normalized, row.id],
-              (err) => (err ? reject(err) : resolve()),
-            );
-          });
-          row.date = normalized;
-        }
-      }
-
-      // 清空旧趋势
-      await new Promise<void>((resolve, reject) => {
-        this.db.run('DELETE FROM assets_trend', (err) =>
-          err ? reject(err) : resolve(),
-        );
-      });
-
-      if (allRecords.length === 0) return true;
-
-      // 用 type+memo 作为唯一键，区分同类型但不同账户的资产
-      const getKey = (r: any) => `${r.type}||${r.memo || ''}`;
-      const allKeys = [...new Set(allRecords.map(getKey))];
-
-      const fromMonth = new Date(allRecords[0].date);
-      fromMonth.setDate(1);
-      fromMonth.setHours(0, 0, 0, 0);
-
-      const month = new Date(fromMonth);
-
-      while (month <= currentMonthStart) {
-        const monthEnd = new Date(
-          month.getFullYear(),
-          month.getMonth() + 1,
-          0,
-          23,
-          59,
-          59,
-          999,
-        );
-
-        let total = 0;
-        for (const key of allKeys) {
-          const latest = allRecords
-            .filter((r) => getKey(r) === key && r.date <= monthEnd.getTime())
-            .sort((a, b) => b.date - a.date)[0];
-          if (latest) total += latest.amount;
-        }
-
-        await this.upsertAssetsTrend(month.getTime(), total);
-        month.setMonth(month.getMonth() + 1);
-      }
-
-      return true;
-    } catch (error) {
-      log.error('重算资产趋势失败:', error);
-      throw error;
-    }
+    return allRecords
+      .filter((r) => this.monthKey(r.date) === latestKey)
+      .reduce((sum, r) => sum + r.amount, 0);
   }
 
-  // UPSERT 资产趋势记录
-  private async upsertAssetsTrend(date: number, amount: number) {
-    await new Promise<void>((resolve, reject) => {
-      this.db.run(
-        'INSERT INTO assets_trend (date, amount) VALUES (?, ?)',
-        [date, amount],
-        (err) => (err ? reject(err) : resolve()),
-      );
-    });
-  }
-
-  // 获取资产汇总
+  // 获取资产汇总（最近有数据月份的合计）
   public async getAssetsSummary() {
     return new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT
-          SUM(amount) as total_amount
-        FROM assets_record`,
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows);
-        },
-      );
+      this.db.all('SELECT date, amount FROM assets_record', (err, rows) => {
+        if (err) reject(err);
+        resolve([{ total_amount: this.processAssetsSummary(rows || []) }]);
+      });
     });
   }
 
-  // 获取资产趋势数据
+  // 获取资产趋势数据（最近12个月，按本地年月分组求和）
   public async getAssetsTrend(arg: any) {
     const { data } = arg;
     const { startDate, endDate } = data;
     return new Promise((resolve, reject) => {
-      this.db.all(
-        `WITH monthly_assets AS (
-          SELECT
-            strftime('%Y-%m', datetime(date/1000, 'unixepoch')) as month,
-            MAX(date) as max_date,
-            amount
-          FROM assets_trend
-          WHERE date >= ? AND date <= ?
-          GROUP BY strftime('%Y-%m', datetime(date/1000, 'unixepoch'))
-        )
-        SELECT
-          max_date as date,
-          amount
-        FROM monthly_assets
-        ORDER BY month DESC
-        LIMIT 12`,
-        [startDate, endDate],
-        (err, rows) => {
-          if (err) reject(err);
-          resolve(rows || []);
-        },
-      );
+      this.db.all('SELECT date, amount FROM assets_record', (err, rows) => {
+        if (err) reject(err);
+
+        // JS 侧按本地年月分组求和，避免 SQLite 时区问题
+        const byMonth = new Map<string, { date: number; amount: number }>();
+        (rows || []).forEach((r) => {
+          const key = this.monthKey(r.date);
+          const existing = byMonth.get(key);
+          if (existing) {
+            existing.amount += r.amount;
+          } else {
+            byMonth.set(key, { date: r.date, amount: r.amount });
+          }
+        });
+
+        const result = Array.from(byMonth.values())
+          .filter((r) => r.date >= startDate && r.date <= endDate)
+          .sort((a, b) => b.date - a.date)
+          .slice(0, 12);
+
+        resolve(result);
+      });
     });
   }
 
@@ -396,27 +315,27 @@ class API {
     const { data } = arg;
     const { page = 1, pageSize = 10, account, month } = data;
     const offset = (page - 1) * pageSize;
-    const params = [];
+    const filters = [];
     let whereClause = '';
 
     if (account || month) {
-      whereClause = 'WHERE ';
       const conditions = [];
 
       if (account) {
         conditions.push('account = ?');
-        params.push(account);
+        filters.push(account);
       }
 
       if (month) {
         conditions.push('month = ?');
-        params.push(month);
+        filters.push(month);
       }
 
-      whereClause += conditions.join(' AND ');
+      whereClause = `WHERE ${conditions.join(' AND ')}`;
     }
 
-    params.push(pageSize, offset);
+    // whereClause 在子查询和主查询里各出现一次，筛选条件要绑定两遍
+    const params = [...filters, ...filters, pageSize, offset];
 
     return new Promise((resolve, reject) => {
       this.db.all(
@@ -484,6 +403,7 @@ class API {
           `);
 
           stmt.run([account, amount, month, memo], (err) => {
+            stmt.finalize();
             if (err) reject(err);
             resolve({ success: true });
           });
@@ -543,6 +463,7 @@ class API {
 
           const now = Date.now();
           stmt.run([account, amount, month, memo, now, id], (err) => {
+            stmt.finalize();
             if (err) reject(err);
             resolve({ success: true });
           });
@@ -568,15 +489,24 @@ class API {
   public async getLastMonthBillSummary() {
     return new Promise((resolve, reject) => {
       const now = new Date();
-      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      // 上界要覆盖到最后一天 23:59:59.999，否则月末的记录会被漏掉
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
 
       this.db.all(
         `SELECT
           SUM(amount) as total_amount
         FROM bill_record
         WHERE month >= ? AND month <= ?`,
-        [lastMonth.getTime(), lastMonthEnd.getTime()],
+        [lastMonthStart.getTime(), lastMonthEnd.getTime()],
         (err, rows) => {
           if (err) reject(err);
           resolve(rows[0]?.total_amount || 0);
@@ -837,15 +767,24 @@ class API {
   public async getLastMonthEarningsSummary() {
     return new Promise((resolve, reject) => {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      // 上界要覆盖到最后一天 23:59:59.999，否则月末的记录会被漏掉
+      const lastMonthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
 
       this.db.all(
         `SELECT
           SUM(earnings) as total_earnings
         FROM investment_record
         WHERE record_date >= ? AND record_date <= ?`,
-        [startOfMonth.getTime(), endOfMonth.getTime()],
+        [lastMonthStart.getTime(), lastMonthEnd.getTime()],
         (err, rows) => {
           if (err) reject(err);
           resolve(rows[0]?.total_earnings || 0);
@@ -874,46 +813,80 @@ class API {
     });
   }
 
-  // 获取账单趋势数据
+  // 获取账单趋势数据（最近12个月，按本地年月分组）
   public async getBillTrend() {
     return new Promise((resolve, reject) => {
       const now = new Date();
       const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
       this.db.all(
-        `SELECT
-          strftime('%Y-%m', datetime(month/1000.0, 'unixepoch', '+8 hours')) as month,
-          account,
-          SUM(amount) as total_amount
-        FROM bill_record
-        WHERE month >= ?
-        GROUP BY account, strftime('%Y-%m', datetime(month/1000.0, 'unixepoch', '+8 hours'))
-        ORDER BY month ASC`,
+        'SELECT month, account, amount FROM bill_record WHERE month >= ?',
         [startDate.getTime()],
         (err, rows) => {
           if (err) reject(err);
-          resolve(rows);
+
+          // JS 侧按本地年月分组，避免 SQLite 时区分桶（原先硬编码 '+8 hours'）
+          const grouped = new Map<
+            string,
+            { month: string; account: string; total_amount: number }
+          >();
+          (rows || []).forEach((r) => {
+            const month = this.monthKey(r.month);
+            const key = `${month}||${r.account}`;
+            const existing = grouped.get(key);
+            if (existing) {
+              existing.total_amount += r.amount;
+            } else {
+              grouped.set(key, {
+                month,
+                account: r.account,
+                total_amount: r.amount,
+              });
+            }
+          });
+
+          resolve(
+            Array.from(grouped.values()).sort((a, b) =>
+              a.month === b.month
+                ? a.account.localeCompare(b.account)
+                : a.month.localeCompare(b.month),
+            ),
+          );
         },
       );
     });
   }
 
-  // 获取理财收益趋势数据
+  // 获取理财收益趋势数据（最近12个月，按本地年月分组）
   public async getInvestmentEarningsTrend() {
     return new Promise((resolve, reject) => {
       const now = new Date();
       const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
       this.db.all(
-        `SELECT
-          strftime('%Y-%m', datetime(record_date/1000, 'unixepoch')) as month,
-          SUM(earnings) as total_earnings
-        FROM investment_record
-        WHERE record_date >= ?
-        GROUP BY strftime('%Y-%m', datetime(record_date/1000, 'unixepoch'))
-        ORDER BY month ASC`,
+        'SELECT record_date, earnings FROM investment_record WHERE record_date >= ?',
         [startDate.getTime()],
         (err, rows) => {
           if (err) reject(err);
-          resolve(rows);
+
+          // JS 侧按本地年月分组，避免 SQLite 时区分桶（原先用 UTC）
+          const grouped = new Map<
+            string,
+            { month: string; total_earnings: number }
+          >();
+          (rows || []).forEach((r) => {
+            const month = this.monthKey(r.record_date);
+            const existing = grouped.get(month);
+            if (existing) {
+              existing.total_earnings += r.earnings;
+            } else {
+              grouped.set(month, { month, total_earnings: r.earnings });
+            }
+          });
+
+          resolve(
+            Array.from(grouped.values()).sort((a, b) =>
+              a.month.localeCompare(b.month),
+            ),
+          );
         },
       );
     });

@@ -31,3 +31,4 @@ npm-debug.log.*
 plugins/*
 package-lock.json
 data/*
+src/__tests__/.tmp/
